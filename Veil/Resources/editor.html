@@ -1,0 +1,739 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Veil</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --faded: #c0c0c0;
+    --accent: #555;
+    --code-bg: #f5f5f5;
+    --hr-color: #e0e0e0;
+    --font-body: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    --font-mono: 'SF Mono', 'Menlo', monospace;
+}
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg: #1a1a1a;
+        --fg: #e0e0e0;
+        --faded: #555;
+        --accent: #bbb;
+        --code-bg: #2a2a2a;
+        --hr-color: #333;
+    }
+}
+html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 17px;
+    line-height: 1.65;
+    -webkit-text-size-adjust: 100%;
+}
+#editor {
+    min-height: 100%;
+    padding: 16px 20px 200px 20px;
+    outline: none;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    caret-color: var(--fg);
+}
+#placeholder {
+    position: absolute;
+    top: 16px;
+    left: 20px;
+    color: var(--faded);
+    font-style: italic;
+    pointer-events: none;
+}
+
+/* Line styles */
+.line { min-height: 1.65em; }
+.line-h1 { font-size: 1.7em; font-weight: 700; line-height: 1.3; margin: 0.3em 0 0.15em; }
+.line-h2 { font-size: 1.35em; font-weight: 600; line-height: 1.35; margin: 0.25em 0 0.1em; }
+.line-h3 { font-size: 1.12em; font-weight: 600; line-height: 1.4; margin: 0.2em 0 0.1em; }
+.line-h4, .line-h5, .line-h6 { font-weight: 600; }
+.line-h6 { color: var(--faded); }
+.line-quote {
+    border-left: 3px solid var(--hr-color);
+    padding-left: 12px;
+    font-style: italic;
+}
+.line-code-block {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 2px 8px;
+    border-radius: 3px;
+}
+.line-code-fence { color: var(--faded); font-family: var(--font-mono); font-size: 0.85em; }
+.line-hr { border: none; border-top: 1px solid var(--hr-color); margin: 1em 0; min-height: 0; height: 0; }
+
+/* Inline styles */
+.mk { color: var(--faded); font-weight: 400; font-style: normal; }
+.md-bold { font-weight: 700; color: var(--fg); }
+.md-italic { font-style: italic; color: var(--fg); }
+.md-bolditalic { font-weight: 700; font-style: italic; color: var(--fg); }
+.md-code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--code-bg);
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: var(--fg);
+}
+.md-strike { text-decoration: line-through; color: var(--accent); }
+.md-link { color: #2563eb; text-decoration: underline; }
+
+/* Task checkboxes */
+.task-cb { font-size: 0; width: 0; display: inline; }
+.task-cb-vis { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--faded); border-radius: 4px; vertical-align: text-bottom; margin-right: 4px; text-align: center; line-height: 14px; font-size: 12px; cursor: pointer; }
+.task-cb-vis.checked { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+</style>
+</head>
+<body>
+<div id="placeholder">Start writing...</div>
+<div id="editor" contenteditable="true" spellcheck="true" autocapitalize="sentences" autocorrect="on"></div>
+<script>
+(function() {
+    const editor = document.getElementById('editor');
+    const placeholder = document.getElementById('placeholder');
+    let markdownSource = '';
+    let isComposing = false;
+    let enterHandled = false;
+
+    // --- Expose to Swift ---
+    window.setContent = function(md) {
+        markdownSource = md || '';
+        render();
+        updatePlaceholder();
+        notifyChange();
+    };
+    window.getContent = function() { return markdownSource; };
+
+    function updatePlaceholder() {
+        placeholder.style.display = markdownSource.trim() === '' ? 'block' : 'none';
+    }
+
+    function notifyChange() {
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.veil) {
+            window.webkit.messageHandlers.veil.postMessage({ action: 'contentChanged', markdown: markdownSource });
+        }
+    }
+
+    // ========================================
+    // CURSOR MAPPING
+    // ========================================
+    // Key invariant: every line div's textContent === markdownSource line.
+    // This means DOM text offset === markdown source offset. Always.
+
+    function getLineDiv(node) {
+        let el = node.nodeType === 3 ? node.parentElement : node;
+        while (el && el !== editor) {
+            if (el.dataset && el.dataset.line !== undefined) return el;
+            el = el.parentElement;
+        }
+        return null;
+    }
+
+    function getLineIndex(node) {
+        const div = getLineDiv(node);
+        return div ? parseInt(div.dataset.line) : 0;
+    }
+
+    function getDOMOffset(container, offset) {
+        const lineDiv = getLineDiv(container);
+        if (!lineDiv) return 0;
+        if (container === lineDiv) {
+            let total = 0;
+            for (let i = 0; i < offset && i < lineDiv.childNodes.length; i++) {
+                total += lineDiv.childNodes[i].textContent.length;
+            }
+            return total;
+        }
+        let total = 0;
+        const walker = document.createTreeWalker(lineDiv, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+            if (node === container) return total + offset;
+            total += node.textContent.length;
+        }
+        return total + offset;
+    }
+
+    function getCursorPos() {
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return null;
+        const range = sel.getRangeAt(0);
+        const lineDiv = getLineDiv(range.startContainer);
+        if (!lineDiv) return null;
+        return {
+            line: parseInt(lineDiv.dataset.line),
+            offset: getDOMOffset(range.startContainer, range.startOffset)
+        };
+    }
+
+    function getSelectionRange() {
+        const sel = window.getSelection();
+        if (!sel.rangeCount) return null;
+        const range = sel.getRangeAt(0);
+        return {
+            startLine: getLineIndex(range.startContainer),
+            startOffset: getDOMOffset(range.startContainer, range.startOffset),
+            endLine: getLineIndex(range.endContainer),
+            endOffset: getDOMOffset(range.endContainer, range.endOffset),
+            collapsed: range.collapsed
+        };
+    }
+
+    function setCursor(lineIndex, charOffset) {
+        const lineDiv = editor.querySelector('[data-line="' + lineIndex + '"]');
+        if (!lineDiv) return;
+        // Clamp offset
+        const maxOff = lineDiv.textContent.length;
+        charOffset = Math.min(charOffset, maxOff);
+        charOffset = Math.max(charOffset, 0);
+
+        const walker = document.createTreeWalker(lineDiv, NodeFilter.SHOW_TEXT);
+        let node, acc = 0;
+        while ((node = walker.nextNode())) {
+            const len = node.textContent.length;
+            if (acc + len >= charOffset) {
+                const sel = window.getSelection();
+                const range = document.createRange();
+                range.setStart(node, charOffset - acc);
+                range.collapse(true);
+                sel.removeAllRanges();
+                sel.addRange(range);
+                return;
+            }
+            acc += len;
+        }
+        // Fallback: end of line
+        const texts = [];
+        const w = document.createTreeWalker(lineDiv, NodeFilter.SHOW_TEXT);
+        let n;
+        while ((n = w.nextNode())) texts.push(n);
+        if (texts.length) {
+            const last = texts[texts.length - 1];
+            const sel = window.getSelection();
+            const range = document.createRange();
+            range.setStart(last, last.textContent.length);
+            range.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    }
+
+    // ========================================
+    // INPUT HANDLING
+    // ========================================
+
+    editor.addEventListener('compositionstart', () => { isComposing = true; });
+    editor.addEventListener('compositionend', () => {
+        isComposing = false;
+        syncCurrentLineFromDOM();
+    });
+
+    // keydown for Enter and Backspace (most reliable on iOS)
+    let backspaceHandled = false;
+    editor.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.keyCode === 13) {
+            e.preventDefault();
+            enterHandled = true;
+            handleEnter();
+        }
+        if (e.key === 'Backspace' || e.keyCode === 8) {
+            e.preventDefault();
+            backspaceHandled = true;
+            handleBackspace();
+        }
+    });
+
+    editor.addEventListener('beforeinput', (e) => {
+        if (isComposing) return;
+        const t = e.inputType;
+
+        if (t === 'insertParagraph' || t === 'insertLineBreak') {
+            e.preventDefault();
+            if (!enterHandled) handleEnter();
+            enterHandled = false;
+            return;
+        }
+        enterHandled = false;
+
+        if (t === 'insertText') {
+            e.preventDefault();
+            insertTextAtCursor(e.data || '');
+            return;
+        }
+
+        if (t === 'deleteContentBackward') {
+            e.preventDefault();
+            if (!backspaceHandled) handleBackspace();
+            backspaceHandled = false;
+            return;
+        }
+
+        if (t === 'deleteContentForward') {
+            e.preventDefault();
+            handleDelete();
+            return;
+        }
+
+        if (t === 'deleteWordBackward' || t === 'deleteSoftLineBackward' || t === 'deleteHardLineBackward') {
+            e.preventDefault();
+            handleDeleteWord('backward');
+            return;
+        }
+
+        if (t === 'deleteWordForward' || t === 'deleteSoftLineForward' || t === 'deleteHardLineForward') {
+            e.preventDefault();
+            handleDeleteWord('forward');
+            return;
+        }
+
+        if (t === 'insertFromPaste' || t === 'insertFromDrop') {
+            e.preventDefault();
+            const text = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
+            if (text) handlePaste(text);
+            return;
+        }
+
+        if (t === 'insertReplacementText') {
+            // Autocorrect/autocomplete
+            e.preventDefault();
+            const ranges = e.getTargetRanges();
+            if (ranges.length > 0 && e.dataTransfer) {
+                const replacement = e.dataTransfer.getData('text/plain');
+                const r = ranges[0];
+                const startLine = getLineIndex(r.startContainer);
+                const startOff = getDOMOffset(r.startContainer, r.startOffset);
+                const endLine = getLineIndex(r.endContainer);
+                const endOff = getDOMOffset(r.endContainer, r.endOffset);
+                deleteRangeAndInsert(startLine, startOff, endLine, endOff, replacement);
+            }
+            return;
+        }
+
+        // Anything else: let it happen, sync after
+    });
+
+    editor.addEventListener('input', (e) => {
+        if (isComposing) return;
+        const handled = ['insertText', 'insertParagraph', 'insertLineBreak',
+            'deleteContentBackward', 'deleteContentForward',
+            'deleteWordBackward', 'deleteWordForward',
+            'deleteSoftLineBackward', 'deleteSoftLineForward',
+            'deleteHardLineBackward', 'deleteHardLineForward',
+            'insertFromPaste', 'insertFromDrop', 'insertReplacementText'];
+        if (handled.includes(e.inputType)) return;
+        syncAllFromDOM();
+    });
+
+    // ========================================
+    // EDIT OPERATIONS
+    // ========================================
+
+    function insertTextAtCursor(text) {
+        const sr = getSelectionRange();
+        if (!sr) return;
+        if (!sr.collapsed) {
+            deleteRangeAndInsert(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset, text);
+            return;
+        }
+        const lines = markdownSource.split('\n');
+        const line = lines[sr.startLine] || '';
+        lines[sr.startLine] = line.slice(0, sr.startOffset) + text + line.slice(sr.startOffset);
+        markdownSource = lines.join('\n');
+        render();
+        setCursor(sr.startLine, sr.startOffset + text.length);
+        updatePlaceholder();
+        notifyChange();
+    }
+
+    function handleEnter() {
+        const sr = getSelectionRange();
+        if (!sr) return;
+
+        // Delete selection first if any
+        if (!sr.collapsed) {
+            deleteRangeRaw(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset);
+        }
+
+        const pos = sr.collapsed ? sr : { startLine: sr.startLine, startOffset: sr.startOffset };
+        const lines = markdownSource.split('\n');
+        const currentLine = lines[pos.startLine] || '';
+        const before = currentLine.slice(0, pos.startOffset);
+        const after = currentLine.slice(pos.startOffset);
+
+        // Auto-continue lists
+        let prefix = '';
+        const taskMatch = currentLine.match(/^([-*])\s+\[([ xX])\]\s/);
+        const bulletMatch = currentLine.match(/^([-*+])\s/);
+        const orderedMatch = currentLine.match(/^(\d+)\.\s/);
+
+        // If empty list item, remove it
+        if (taskMatch && before.match(/^[-*]\s+\[[ xX]\]\s*$/) && after.trim() === '') {
+            lines[pos.startLine] = '';
+            markdownSource = lines.join('\n');
+            render(); setCursor(pos.startLine, 0);
+        } else if (bulletMatch && !taskMatch && before.match(/^[-*+]\s*$/) && after.trim() === '') {
+            lines[pos.startLine] = '';
+            markdownSource = lines.join('\n');
+            render(); setCursor(pos.startLine, 0);
+        } else if (orderedMatch && before.match(/^\d+\.\s*$/) && after.trim() === '') {
+            lines[pos.startLine] = '';
+            markdownSource = lines.join('\n');
+            render(); setCursor(pos.startLine, 0);
+        } else {
+            if (taskMatch) prefix = taskMatch[1] + ' [ ] ';
+            else if (bulletMatch && !taskMatch) prefix = bulletMatch[1] + ' ';
+            else if (orderedMatch) prefix = (parseInt(orderedMatch[1]) + 1) + '. ';
+
+            lines.splice(pos.startLine, 1, before, prefix + after);
+            markdownSource = lines.join('\n');
+            render(); setCursor(pos.startLine + 1, prefix.length);
+        }
+        updatePlaceholder();
+        notifyChange();
+    }
+
+    function handleBackspace() {
+        const sr = getSelectionRange();
+        if (!sr) return;
+
+        if (!sr.collapsed) {
+            deleteRangeRaw(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset);
+            markdownSource = markdownSource; // already modified
+            render(); setCursor(sr.startLine, sr.startOffset);
+            updatePlaceholder(); notifyChange();
+            return;
+        }
+
+        const lines = markdownSource.split('\n');
+        if (sr.startOffset > 0) {
+            const line = lines[sr.startLine];
+            lines[sr.startLine] = line.slice(0, sr.startOffset - 1) + line.slice(sr.startOffset);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, sr.startOffset - 1);
+        } else if (sr.startLine > 0) {
+            const prevLen = lines[sr.startLine - 1].length;
+            lines[sr.startLine - 1] += lines[sr.startLine];
+            lines.splice(sr.startLine, 1);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine - 1, prevLen);
+        }
+        updatePlaceholder(); notifyChange();
+    }
+
+    function handleDelete() {
+        const sr = getSelectionRange();
+        if (!sr) return;
+
+        if (!sr.collapsed) {
+            deleteRangeRaw(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset);
+            render(); setCursor(sr.startLine, sr.startOffset);
+            updatePlaceholder(); notifyChange();
+            return;
+        }
+
+        const lines = markdownSource.split('\n');
+        const line = lines[sr.startLine] || '';
+        if (sr.startOffset < line.length) {
+            lines[sr.startLine] = line.slice(0, sr.startOffset) + line.slice(sr.startOffset + 1);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, sr.startOffset);
+        } else if (sr.startLine < lines.length - 1) {
+            lines[sr.startLine] += lines[sr.startLine + 1];
+            lines.splice(sr.startLine + 1, 1);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, sr.startOffset);
+        }
+        updatePlaceholder(); notifyChange();
+    }
+
+    function handleDeleteWord(direction) {
+        // Simple: delete to word boundary
+        const sr = getSelectionRange();
+        if (!sr) return;
+        if (!sr.collapsed) { handleBackspace(); return; }
+
+        const lines = markdownSource.split('\n');
+        const line = lines[sr.startLine] || '';
+
+        if (direction === 'backward') {
+            if (sr.startOffset === 0) { handleBackspace(); return; }
+            let i = sr.startOffset - 1;
+            while (i > 0 && line[i - 1] === ' ') i--;
+            while (i > 0 && line[i - 1] !== ' ') i--;
+            lines[sr.startLine] = line.slice(0, i) + line.slice(sr.startOffset);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, i);
+        } else {
+            if (sr.startOffset >= line.length) { handleDelete(); return; }
+            let i = sr.startOffset;
+            while (i < line.length && line[i] !== ' ') i++;
+            while (i < line.length && line[i] === ' ') i++;
+            lines[sr.startLine] = line.slice(0, sr.startOffset) + line.slice(i);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, sr.startOffset);
+        }
+        updatePlaceholder(); notifyChange();
+    }
+
+    function handlePaste(text) {
+        const sr = getSelectionRange();
+        if (!sr) return;
+        if (!sr.collapsed) {
+            deleteRangeRaw(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset);
+        }
+        const pos = { line: sr.startLine, offset: sr.startOffset };
+        const pasteLines = text.split('\n');
+        const lines = markdownSource.split('\n');
+        const currentLine = lines[pos.line] || '';
+        const before = currentLine.slice(0, pos.offset);
+        const after = currentLine.slice(pos.offset);
+
+        if (pasteLines.length === 1) {
+            lines[pos.line] = before + pasteLines[0] + after;
+            markdownSource = lines.join('\n');
+            render(); setCursor(pos.line, pos.offset + pasteLines[0].length);
+        } else {
+            const newLines = lines.slice(0, pos.line);
+            newLines.push(before + pasteLines[0]);
+            for (let i = 1; i < pasteLines.length - 1; i++) newLines.push(pasteLines[i]);
+            newLines.push(pasteLines[pasteLines.length - 1] + after);
+            for (let i = pos.line + 1; i < lines.length; i++) newLines.push(lines[i]);
+            markdownSource = newLines.join('\n');
+            const lastLine = pos.line + pasteLines.length - 1;
+            render(); setCursor(lastLine, pasteLines[pasteLines.length - 1].length);
+        }
+        updatePlaceholder(); notifyChange();
+    }
+
+    function deleteRangeRaw(startLine, startOff, endLine, endOff) {
+        const lines = markdownSource.split('\n');
+        const before = (lines[startLine] || '').slice(0, startOff);
+        const after = (lines[endLine] || '').slice(endOff);
+        const newLines = lines.slice(0, startLine);
+        newLines.push(before + after);
+        for (let i = endLine + 1; i < lines.length; i++) newLines.push(lines[i]);
+        markdownSource = newLines.join('\n');
+    }
+
+    function deleteRangeAndInsert(startLine, startOff, endLine, endOff, text) {
+        deleteRangeRaw(startLine, startOff, endLine, endOff);
+        const lines = markdownSource.split('\n');
+        const line = lines[startLine] || '';
+        lines[startLine] = line.slice(0, startOff) + text + line.slice(startOff);
+        markdownSource = lines.join('\n');
+        render(); setCursor(startLine, startOff + text.length);
+        updatePlaceholder(); notifyChange();
+    }
+
+    function syncCurrentLineFromDOM() {
+        const pos = getCursorPos();
+        if (!pos) return;
+        const lineDiv = editor.querySelector('[data-line="' + pos.line + '"]');
+        if (!lineDiv) return;
+        const domText = lineDiv.textContent;
+        const lines = markdownSource.split('\n');
+        if (lines[pos.line] !== domText) {
+            lines[pos.line] = domText;
+            markdownSource = lines.join('\n');
+            render(); setCursor(pos.line, pos.offset);
+            updatePlaceholder(); notifyChange();
+        }
+    }
+
+    function syncAllFromDOM() {
+        const pos = getCursorPos();
+        const divs = editor.querySelectorAll('[data-line]');
+        const lines = [];
+        divs.forEach(div => { lines.push(div.textContent); });
+        if (lines.length > 0) {
+            markdownSource = lines.join('\n');
+            render();
+            if (pos) setCursor(pos.line, pos.offset);
+            updatePlaceholder(); notifyChange();
+        }
+    }
+
+    // ========================================
+    // RENDERING
+    // ========================================
+    // Key rule: every line div's textContent must === the markdown source line.
+    // Styling is done via spans that wrap parts of the text, but ALL text is present.
+
+    function render() {
+        const lines = markdownSource.split('\n');
+        let inFence = false;
+        const html = lines.map((line, i) => {
+            // Code fences
+            if (inFence) {
+                if (/^```/.test(line)) { inFence = false; return mkDiv(i, 'line-code-fence', esc(line)); }
+                return mkDiv(i, 'line-code-block', esc(line));
+            }
+            if (/^```/.test(line)) { inFence = true; return mkDiv(i, 'line-code-fence', esc(line)); }
+
+            // HR
+            if (/^(\*\*\*|---|___)\s*$/.test(line)) return mkDiv(i, 'line-hr', '<span class="mk">' + esc(line) + '</span>');
+
+            // Headings: # text -- full line rendered, # is faded
+            const hm = line.match(/^(#{1,6}\s)(.*)/);
+            if (hm) return mkDiv(i, 'line-h' + (hm[1].trim().length),
+                '<span class="mk">' + esc(hm[1]) + '</span>' + renderInline(hm[2]));
+
+            // Blockquote: > text -- full line rendered, > is faded
+            const bq = line.match(/^(>\s?)(.*)/);
+            if (bq) return mkDiv(i, 'line-quote',
+                '<span class="mk">' + esc(bq[1]) + '</span>' + renderInline(bq[2]));
+
+            // Task list: - [x] text
+            const task = line.match(/^([-*]\s+\[[ xX]\]\s)(.*)/);
+            if (task) return mkDiv(i, 'line',
+                '<span class="mk">' + esc(task[1]) + '</span>' + renderInline(task[2]));
+
+            // Unordered list: - text
+            const ul = line.match(/^([-*+]\s)(.*)/);
+            if (ul) return mkDiv(i, 'line',
+                '<span class="mk">' + esc(ul[1]) + '</span>' + renderInline(ul[2]));
+
+            // Ordered list: 1. text
+            const ol = line.match(/^(\d+\.\s)(.*)/);
+            if (ol) return mkDiv(i, 'line',
+                '<span class="mk">' + esc(ol[1]) + '</span>' + renderInline(ol[2]));
+
+            // Plain
+            return mkDiv(i, 'line', renderInline(line) || '<br>');
+        }).join('');
+        editor.innerHTML = html;
+    }
+
+    function mkDiv(i, cls, content) {
+        return '<div class="line ' + cls + '" data-line="' + i + '">' + content + '</div>';
+    }
+
+    function renderInline(text) {
+        if (!text) return '';
+        // Single-pass tokenizer: scan left to right, match markdown patterns.
+        // This avoids the bug where italic * regex matches inside already-replaced ** bold spans.
+        let result = '';
+        let i = 0;
+        while (i < text.length) {
+            // Inline code (highest priority -- contents not parsed)
+            if (text[i] === '`') {
+                const end = text.indexOf('`', i + 1);
+                if (end !== -1) {
+                    const inner = text.slice(i + 1, end);
+                    result += '<span class="mk">`</span><span class="md-code">' + esc(inner) + '</span><span class="mk">`</span>';
+                    i = end + 1;
+                    continue;
+                }
+            }
+            // Link [text](url)
+            if (text[i] === '[') {
+                const closeBracket = text.indexOf(']', i + 1);
+                if (closeBracket !== -1 && text[closeBracket + 1] === '(') {
+                    const closeParen = text.indexOf(')', closeBracket + 2);
+                    if (closeParen !== -1) {
+                        const linkText = text.slice(i + 1, closeBracket);
+                        const url = text.slice(closeBracket + 2, closeParen);
+                        result += '<span class="mk">[</span><span class="md-link">' + esc(linkText) + '</span><span class="mk">](' + esc(url) + ')</span>';
+                        i = closeParen + 1;
+                        continue;
+                    }
+                }
+            }
+            // Strikethrough ~~text~~
+            if (text[i] === '~' && text[i + 1] === '~') {
+                const end = text.indexOf('~~', i + 2);
+                if (end !== -1) {
+                    const inner = text.slice(i + 2, end);
+                    result += '<span class="mk">~~</span><span class="md-strike">' + esc(inner) + '</span><span class="mk">~~</span>';
+                    i = end + 2;
+                    continue;
+                }
+            }
+            // Bold+Italic ***text***
+            if (text[i] === '*' && text[i + 1] === '*' && text[i + 2] === '*') {
+                const end = text.indexOf('***', i + 3);
+                if (end !== -1) {
+                    const inner = text.slice(i + 3, end);
+                    result += '<span class="mk">***</span><span class="md-bolditalic">' + esc(inner) + '</span><span class="mk">***</span>';
+                    i = end + 3;
+                    continue;
+                }
+            }
+            // Bold **text**
+            if (text[i] === '*' && text[i + 1] === '*') {
+                const end = text.indexOf('**', i + 2);
+                if (end !== -1) {
+                    const inner = text.slice(i + 2, end);
+                    result += '<span class="mk">**</span><span class="md-bold">' + esc(inner) + '</span><span class="mk">**</span>';
+                    i = end + 2;
+                    continue;
+                }
+            }
+            // Italic *text*
+            if (text[i] === '*') {
+                const end = text.indexOf('*', i + 1);
+                if (end !== -1) {
+                    const inner = text.slice(i + 1, end);
+                    result += '<span class="mk">*</span><span class="md-italic">' + esc(inner) + '</span><span class="mk">*</span>';
+                    i = end + 1;
+                    continue;
+                }
+            }
+            // Plain character
+            result += esc(text[i]);
+            i++;
+        }
+        return result;
+    }
+
+    function esc(s) {
+        return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // ========================================
+    // TASK TOGGLE
+    // ========================================
+    window.toggleTask = function(lineIdx) {
+        const lines = markdownSource.split('\n');
+        if (lineIdx < lines.length) {
+            if (/\[ \]/.test(lines[lineIdx])) {
+                lines[lineIdx] = lines[lineIdx].replace('[ ]', '[x]');
+            } else {
+                lines[lineIdx] = lines[lineIdx].replace(/\[[xX]\]/, '[ ]');
+            }
+            markdownSource = lines.join('\n');
+            render(); notifyChange();
+        }
+    };
+
+    // ========================================
+    // SCROLL
+    // ========================================
+    function scrollCursorIntoView() {
+        setTimeout(() => {
+            const sel = window.getSelection();
+            if (sel.rangeCount) {
+                const rect = sel.getRangeAt(0).getBoundingClientRect();
+                if (rect.bottom > window.innerHeight - 60) {
+                    window.scrollTo(0, window.scrollY + rect.bottom - window.innerHeight + 80);
+                }
+            }
+        }, 50);
+    }
+    editor.addEventListener('focus', scrollCursorIntoView);
+})();
+</script>
+</body>
+</html>
