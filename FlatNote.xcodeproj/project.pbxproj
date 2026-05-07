@@ -7,27 +7,25 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		A10000010000000000000001 /* VeilApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000001; };
-		A10000020000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000020000000000000002; };
-		A10000030000000000000003 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000030000000000000003; };
-		A10000040000000000000004 /* FileListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000040000000000000004; };
-		A10000050000000000000005 /* MarkdownFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000050000000000000005; };
-		A10000080000000000000008 /* ShareSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000090000000000000009; };
-		A10000060000000000000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000060000000000000006; };
-		A10000070000000000000007 /* editor.html in Resources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000007; };
+		4B108A892FA7F19E0088E7A5 /* MarkdownDocument.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4B108A882FA7F19E0088E7A5 /* MarkdownDocument.swift */; };
+		A10000010000000000000001 /* FlatNoteApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000010000000000000001 /* FlatNoteApp.swift */; };
+		A10000030000000000000003 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000030000000000000003 /* EditorView.swift */; };
+		A10000060000000000000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000060000000000000006 /* Assets.xcassets */; };
+		A10000070000000000000007 /* editor.html in Resources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000007 /* editor.html */; };
+		C10000010000000000000001 /* NoteLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* NoteLibraryView.swift */; };
+		C10000020000000000000002 /* NoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000020000000000000002 /* NoteStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		A20000010000000000000001 /* VeilApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VeilApp.swift; sourceTree = "<group>"; };
-		A20000020000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		4B108A882FA7F19E0088E7A5 /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
+		A20000010000000000000001 /* FlatNoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlatNoteApp.swift; sourceTree = "<group>"; };
 		A20000030000000000000003 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
-		A20000040000000000000004 /* FileListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileListView.swift; sourceTree = "<group>"; };
-		A20000050000000000000005 /* MarkdownFileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownFileStore.swift; sourceTree = "<group>"; };
 		A20000060000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000070000000000000007 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
 		A20000080000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A20000090000000000000009 /* ShareSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareSheet.swift; sourceTree = "<group>"; };
-		A30000010000000000000001 /* Veil.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Veil.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A30000010000000000000001 /* FlatNote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FlatNote.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		C20000010000000000000001 /* NoteLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteLibraryView.swift; sourceTree = "<group>"; };
+		C20000020000000000000002 /* NoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -44,31 +42,30 @@
 		A50000010000000000000001 = {
 			isa = PBXGroup;
 			children = (
-				A50000020000000000000002 /* Veil */,
+				A50000020000000000000002 /* FlatNote */,
 				A50000030000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		A50000020000000000000002 /* Veil */ = {
+		A50000020000000000000002 /* FlatNote */ = {
 			isa = PBXGroup;
 			children = (
-				A20000010000000000000001 /* VeilApp.swift */,
-				A20000020000000000000002 /* ContentView.swift */,
+				A20000010000000000000001 /* FlatNoteApp.swift */,
 				A20000030000000000000003 /* EditorView.swift */,
-				A20000040000000000000004 /* FileListView.swift */,
-				A20000050000000000000005 /* MarkdownFileStore.swift */,
-				A20000090000000000000009 /* ShareSheet.swift */,
+				C20000010000000000000001 /* NoteLibraryView.swift */,
+				C20000020000000000000002 /* NoteStore.swift */,
 				A50000040000000000000004 /* Resources */,
 				A20000060000000000000006 /* Assets.xcassets */,
 				A20000080000000000000008 /* Info.plist */,
+				4B108A882FA7F19E0088E7A5 /* MarkdownDocument.swift */,
 			);
-			path = Veil;
+			path = FlatNote;
 			sourceTree = "<group>";
 		};
 		A50000030000000000000003 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				A30000010000000000000001 /* Veil.app */,
+				A30000010000000000000001 /* FlatNote.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -84,9 +81,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		A60000010000000000000001 /* Veil */ = {
+		A60000010000000000000001 /* FlatNote */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = A80000010000000000000001 /* Build configuration list for PBXNativeTarget "Veil" */;
+			buildConfigurationList = A80000010000000000000001 /* Build configuration list for PBXNativeTarget "FlatNote" */;
 			buildPhases = (
 				A70000010000000000000001 /* Sources */,
 				A40000010000000000000001 /* Frameworks */,
@@ -96,9 +93,9 @@
 			);
 			dependencies = (
 			);
-			name = Veil;
-			productName = Veil;
-			productReference = A30000010000000000000001 /* Veil.app */;
+			name = FlatNote;
+			productName = FlatNote;
+			productReference = A30000010000000000000001 /* FlatNote.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -116,7 +113,7 @@
 					};
 				};
 			};
-			buildConfigurationList = A80000020000000000000002 /* Build configuration list for PBXProject "Veil" */;
+			buildConfigurationList = A80000020000000000000002 /* Build configuration list for PBXProject "FlatNote" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -129,7 +126,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				A60000010000000000000001 /* Veil */,
+				A60000010000000000000001 /* FlatNote */,
 			);
 		};
 /* End PBXProject section */
@@ -151,12 +148,11 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A10000010000000000000001 /* VeilApp.swift in Sources */,
-				A10000020000000000000002 /* ContentView.swift in Sources */,
+				A10000010000000000000001 /* FlatNoteApp.swift in Sources */,
 				A10000030000000000000003 /* EditorView.swift in Sources */,
-				A10000040000000000000004 /* FileListView.swift in Sources */,
-				A10000050000000000000005 /* MarkdownFileStore.swift in Sources */,
-				A10000080000000000000008 /* ShareSheet.swift in Sources */,
+				4B108A892FA7F19E0088E7A5 /* MarkdownDocument.swift in Sources */,
+				C10000010000000000000001 /* NoteLibraryView.swift in Sources */,
+				C10000020000000000000002 /* NoteStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -286,8 +282,9 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SMQ3T59TFL;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Veil/Info.plist;
+				INFOPLIST_FILE = FlatNote/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -297,8 +294,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.aftrveil.veil;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.aftrveil.flatnote;
+				PRODUCT_NAME = FlatNote;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -312,8 +309,9 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = SMQ3T59TFL;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = Veil/Info.plist;
+				INFOPLIST_FILE = FlatNote/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -323,8 +321,8 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.aftrveil.veil;
-				PRODUCT_NAME = "$(TARGET_NAME)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.aftrveil.flatnote;
+				PRODUCT_NAME = FlatNote;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -334,7 +332,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		A80000010000000000000001 /* Build configuration list for PBXNativeTarget "Veil" */ = {
+		A80000010000000000000001 /* Build configuration list for PBXNativeTarget "FlatNote" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B20000010000000000000001 /* Debug */,
@@ -343,7 +341,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		A80000020000000000000002 /* Build configuration list for PBXProject "Veil" */ = {
+		A80000020000000000000002 /* Build configuration list for PBXProject "FlatNote" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				B10000010000000000000001 /* Debug */,
@@ -353,7 +351,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
 	};
 	rootObject = A90000010000000000000001 /* Project object */;
 }

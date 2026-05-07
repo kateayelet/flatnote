@@ -1,10 +1,10 @@
 import SwiftUI
 
 @main
-struct VeilApp: App {
+struct FlatNoteApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            NoteLibraryView()
         }
     }
 }

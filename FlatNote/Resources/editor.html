@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Veil</title>
+<title>FlatNote</title>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
@@ -13,8 +13,8 @@
     --accent: #555;
     --code-bg: #f5f5f5;
     --hr-color: #e0e0e0;
-    --font-body: -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif;
-    --font-mono: 'SF Mono', 'Menlo', monospace;
+    --font-body: 'Geist', -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+    --font-mono: 'Geist Mono', 'SF Mono', 'Menlo', monospace;
 }
 @media (prefers-color-scheme: dark) {
     :root {
@@ -97,7 +97,7 @@ html, body {
 </style>
 </head>
 <body>
-<div id="placeholder">Start writing...</div>
+<div id="placeholder"># Title</div>
 <div id="editor" contenteditable="true" spellcheck="true" autocapitalize="sentences" autocorrect="on"></div>
 <script>
 (function() {
@@ -121,8 +121,8 @@ html, body {
     }
 
     function notifyChange() {
-        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.veil) {
-            window.webkit.messageHandlers.veil.postMessage({ action: 'contentChanged', markdown: markdownSource });
+        if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.flatnote) {
+            window.webkit.messageHandlers.flatnote.postMessage({ action: 'contentChanged', markdown: markdownSource });
         }
     }
 
@@ -227,7 +227,15 @@ html, body {
             range.collapse(true);
             sel.removeAllRanges();
             sel.addRange(range);
+            return;
         }
+        // Empty line (only <br>, no text nodes): anchor cursor to the line div itself
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.setStart(lineDiv, 0);
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
     }
 
     // ========================================

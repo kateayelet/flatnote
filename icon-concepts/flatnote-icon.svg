@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Background: Navy -->
+  <rect width="1024" height="1024" rx="224" fill="#101E3A"/>
+
+  <!-- Paper sheet: warm parchment, slightly rotated -->
+  <g transform="translate(512 470) rotate(-2)">
+    <rect x="-220" y="-280" width="440" height="540" rx="8" fill="#F2EDE6"/>
+    <!-- Subtle fold triangle in top-right corner -->
+    <polygon points="220,-280 220,-236 176,-280" fill="#E0D9CE"/>
+  </g>
+
+  <!-- Ruled lines on the paper, bolder to match FlatFile -->
+  <g stroke="#C4BDB2" stroke-width="5" opacity="0.9">
+    <line x1="320" y1="300" x2="704" y2="293"/>
+    <line x1="320" y1="365" x2="704" y2="358"/>
+    <line x1="320" y1="430" x2="704" y2="423"/>
+    <line x1="320" y1="495" x2="704" y2="488"/>
+    <line x1="320" y1="560" x2="704" y2="553"/>
+  </g>
+
+  <!-- "# FlatNote" on the first ruled line, bolder -->
+  <text x="340" y="298" font-family="'Geist Mono', 'SF Mono', 'Menlo', monospace" font-size="52" font-weight="600" fill="#101E3A" opacity="0.8" transform="rotate(-2 340 298)"># FlatNote</text>
+</svg>
