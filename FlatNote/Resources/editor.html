@@ -75,7 +75,11 @@ html, body {
 .line-hr { border: none; border-top: 1px solid var(--hr-color); margin: 1em 0; min-height: 0; height: 0; }
 
 /* Inline styles */
-.mk { color: var(--faded); font-weight: 400; font-style: normal; }
+/* Syntax markers are present in the DOM (so cursor offsets stay exact) but
+   hidden by default. They are revealed only on the line the cursor is in,
+   via the .active-line class toggled from selectionchange. */
+.mk { color: var(--faded); font-weight: 400; font-style: normal; font-size: 0; }
+.line.active-line .mk { font-size: inherit; }
 .md-bold { font-weight: 700; color: var(--fg); }
 .md-italic { font-style: italic; color: var(--fg); }
 .md-bolditalic { font-weight: 700; font-style: italic; color: var(--fg); }
@@ -90,10 +94,27 @@ html, body {
 .md-strike { text-decoration: line-through; color: var(--accent); }
 .md-link { color: #2563eb; text-decoration: underline; }
 
-/* Task checkboxes */
-.task-cb { font-size: 0; width: 0; display: inline; }
-.task-cb-vis { display: inline-block; width: 18px; height: 18px; border: 2px solid var(--faded); border-radius: 4px; vertical-align: text-bottom; margin-right: 4px; text-align: center; line-height: 14px; font-size: 12px; cursor: pointer; }
-.task-cb-vis.checked { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+/* Unordered list: hide the raw "- "/"* " marker and draw a bullet instead.
+   On the active line the raw marker is revealed and the bullet suppressed. */
+.list-mk::before { content: "\2022\00a0\00a0"; font-size: 17px; color: var(--fg); }
+.line.active-line .list-mk::before { content: none; }
+
+/* Ordered list: the number is meaningful, so keep it visible. */
+.ol-mk { color: var(--accent); }
+
+/* Task checkboxes: the raw "- [ ] " uses .mk (hidden until active); the
+   visual box is shown until the line is active, then swapped for the raw text. */
+.task-cb-vis {
+    display: inline-block; width: 17px; height: 17px;
+    border: 1.5px solid var(--faded); border-radius: 4px;
+    vertical-align: -3px; margin-right: 6px; cursor: pointer; position: relative;
+}
+.task-cb-vis.checked { background: var(--accent); border-color: var(--accent); }
+.task-cb-vis.checked::after {
+    content: "\2713"; color: var(--bg); font-size: 12px;
+    position: absolute; top: -3px; left: 2px;
+}
+.line.active-line .task-cb-vis { display: none; }
 </style>
 </head>
 <body>
@@ -192,6 +213,11 @@ html, body {
     }
 
     function setCursor(lineIndex, charOffset) {
+        _setCursorRaw(lineIndex, charOffset);
+        updateActiveLine();
+    }
+
+    function _setCursorRaw(lineIndex, charOffset) {
         const lineDiv = editor.querySelector('[data-line="' + lineIndex + '"]');
         if (!lineDiv) return;
         // Clamp offset
@@ -603,20 +629,25 @@ html, body {
             if (bq) return mkDiv(i, 'line-quote',
                 '<span class="mk">' + esc(bq[1]) + '</span>' + renderInline(bq[2]));
 
-            // Task list: - [x] text
-            const task = line.match(/^([-*]\s+\[[ xX]\]\s)(.*)/);
-            if (task) return mkDiv(i, 'line',
-                '<span class="mk">' + esc(task[1]) + '</span>' + renderInline(task[2]));
+            // Task list: - [x] text  (raw marker hidden, visual checkbox shown)
+            const task = line.match(/^([-*]\s+\[([ xX])\]\s)(.*)/);
+            if (task) {
+                const checked = task[2].toLowerCase() === 'x';
+                return mkDiv(i, 'line',
+                    '<span class="mk task-raw">' + esc(task[1]) + '</span>' +
+                    '<span class="task-cb-vis' + (checked ? ' checked' : '') + '" data-line="' + i + '"></span>' +
+                    renderInline(task[3]));
+            }
 
-            // Unordered list: - text
+            // Unordered list: - text  (raw marker hidden, bullet drawn via CSS)
             const ul = line.match(/^([-*+]\s)(.*)/);
             if (ul) return mkDiv(i, 'line',
-                '<span class="mk">' + esc(ul[1]) + '</span>' + renderInline(ul[2]));
+                '<span class="mk list-mk">' + esc(ul[1]) + '</span>' + renderInline(ul[2]));
 
-            // Ordered list: 1. text
+            // Ordered list: 1. text  (number kept visible)
             const ol = line.match(/^(\d+\.\s)(.*)/);
             if (ol) return mkDiv(i, 'line',
-                '<span class="mk">' + esc(ol[1]) + '</span>' + renderInline(ol[2]));
+                '<span class="ol-mk">' + esc(ol[1]) + '</span>' + renderInline(ol[2]));
 
             // Plain
             return mkDiv(i, 'line', renderInline(line) || '<br>');
@@ -725,6 +756,28 @@ html, body {
             render(); notifyChange();
         }
     };
+
+    // ========================================
+    // ACTIVE LINE (reveals raw syntax on the line being edited)
+    // ========================================
+    function updateActiveLine() {
+        const prev = editor.querySelector('.line.active-line');
+        const pos = getCursorPos();
+        const next = pos ? editor.querySelector('[data-line="' + pos.line + '"]') : null;
+        if (prev === next) return;
+        if (prev) prev.classList.remove('active-line');
+        if (next) next.classList.add('active-line');
+    }
+    document.addEventListener('selectionchange', updateActiveLine);
+
+    // Tap a rendered checkbox to toggle it.
+    editor.addEventListener('click', (e) => {
+        const cb = e.target.closest('.task-cb-vis');
+        if (cb && cb.dataset.line !== undefined) {
+            e.preventDefault();
+            window.toggleTask(parseInt(cb.dataset.line));
+        }
+    });
 
     // ========================================
     // SCROLL

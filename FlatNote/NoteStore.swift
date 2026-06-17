@@ -94,6 +94,39 @@ class NoteStore {
         }
     }
 
+    /// Renames a note's file on disk. Returns the updated note, or nil if the
+    /// name is empty, collides with an existing note, or the move fails.
+    func renameNote(_ note: NoteFile, to newName: String) -> NoteFile? {
+        let trimmed = newName.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+
+        let lower = trimmed.lowercased()
+        let hasKnownExtension = ["md", "markdown", "txt"].contains { lower.hasSuffix("." + $0) }
+        let finalName = hasKnownExtension ? trimmed : trimmed + ".md"
+        let dest = documentsURL.appendingPathComponent(finalName)
+
+        if dest == note.url { return note }
+        guard !FileManager.default.fileExists(atPath: dest.path) else {
+            lastError = "A note named \"\((finalName as NSString).deletingPathExtension)\" already exists."
+            return nil
+        }
+
+        do {
+            try FileManager.default.moveItem(at: note.url, to: dest)
+        } catch {
+            lastError = "Could not rename \"\(note.displayName)\". \(error.localizedDescription)"
+            return nil
+        }
+
+        let attrs = try? FileManager.default.attributesOfItem(atPath: dest.path)
+        let modified = attrs?[.modificationDate] as? Date ?? note.modifiedDate
+        let renamed = NoteFile(id: dest, name: finalName, modifiedDate: modified)
+        if let idx = notes.firstIndex(where: { $0.id == note.id }) {
+            notes[idx] = renamed
+        }
+        return renamed
+    }
+
     func deleteNote(_ note: NoteFile) {
         do {
             try FileManager.default.removeItem(at: note.url)

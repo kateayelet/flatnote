@@ -7,7 +7,10 @@ struct NoteLibraryView: View {
     @State private var searchText = ""
     @State private var showingNewNoteAlert = false
     @State private var showingImporter = false
+    @State private var showingSettings = false
     @State private var newNoteName = ""
+    @State private var renamingNote: NoteFile?
+    @State private var renameText = ""
 
     private var filteredNotes: [NoteFile] {
         if searchText.isEmpty { return store.notes }
@@ -32,6 +35,15 @@ struct NoteLibraryView: View {
                             NoteCard(note: note, preview: store.preview(for: note))
                                 .onTapGesture { selectedNote = note }
                                 .contextMenu {
+                                    Button {
+                                        renameText = note.displayName
+                                        renamingNote = note
+                                    } label: {
+                                        Label("Rename", systemImage: "pencil")
+                                    }
+                                    ShareLink(item: note.url) {
+                                        Label("Export", systemImage: "square.and.arrow.up")
+                                    }
                                     Button(role: .destructive) {
                                         store.deleteNote(note)
                                     } label: {
@@ -49,20 +61,40 @@ struct NoteLibraryView: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.large)
             #endif
-            .searchable(text: $searchText, prompt: "Search Notes")
+            #if DEBUG
+            .onAppear {
+                // UI-inspection hook: launch with SIMCTL_CHILD_FLATNOTE_OPEN_FIRST=1
+                // to jump straight into the first note for screenshots.
+                if ProcessInfo.processInfo.environment["FLATNOTE_OPEN_FIRST"] == "1",
+                   selectedNote == nil, let first = store.notes.first {
+                    selectedNote = first
+                }
+            }
+            #endif
+            .searchable(
+                text: $searchText,
+                placement: .navigationBarDrawer(displayMode: .always),
+                prompt: "Search Notes"
+            )
             .navigationDestination(item: $selectedNote) { note in
                 EditorView(store: store, note: note)
             }
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
-                    HStack(spacing: 12) {
-                        Button { showingImporter = true } label: {
-                            Image(systemName: "folder")
-                        }
-                        Button { showingNewNoteAlert = true } label: {
-                            Image(systemName: "plus")
-                        }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
                     }
+                    .tint(.primary)
+                }
+                ToolbarItemGroup(placement: .primaryAction) {
+                    Button { showingImporter = true } label: {
+                        Image(systemName: "square.and.arrow.down")
+                    }
+                    .tint(.primary)
+                    Button { showingNewNoteAlert = true } label: {
+                        Image(systemName: "square.and.pencil")
+                    }
+                    .tint(.primary)
                 }
             }
             .fileImporter(
@@ -88,6 +120,29 @@ struct NoteLibraryView: View {
                 }
                 Button("Cancel", role: .cancel) { newNoteName = "" }
             }
+            .alert("Rename Note", isPresented: Binding(
+                get: { renamingNote != nil },
+                set: { if !$0 { renamingNote = nil } }
+            ), presenting: renamingNote) { note in
+                TextField("filename", text: $renameText)
+                Button("Rename") {
+                    if let renamed = store.renameNote(note, to: renameText),
+                       selectedNote?.id == note.id {
+                        selectedNote = renamed
+                    }
+                    renamingNote = nil
+                    renameText = ""
+                }
+                Button("Cancel", role: .cancel) {
+                    renamingNote = nil
+                    renameText = ""
+                }
+            } message: { _ in
+                Text("Enter a new name for this note.")
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView(noteCount: store.notes.count)
+            }
             .alert(
                 "Something Went Wrong",
                 isPresented: Binding(
@@ -99,6 +154,51 @@ struct NoteLibraryView: View {
                 Button("OK", role: .cancel) {}
             } message: { message in
                 Text(message)
+            }
+        }
+    }
+}
+
+// MARK: - Settings
+
+struct SettingsView: View {
+    let noteCount: Int
+    @Environment(\.dismiss) private var dismiss
+
+    private var appVersion: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "\(version) (\(build))"
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section("Library") {
+                    LabeledContent("Notes", value: "\(noteCount)")
+                    LabeledContent("Stored", value: "On this device")
+                }
+
+                Section {
+                    Text("FlatNote keeps everything as plain .md files. They are yours: portable, future-proof, and readable in any app. No proprietary formats, no lock-in.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Text("About")
+                }
+
+                Section {
+                    LabeledContent("Version", value: appVersion)
+                }
+            }
+            .navigationTitle("Settings")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
     }
