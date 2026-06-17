@@ -1,5 +1,8 @@
 import SwiftUI
 import WebKit
+#if canImport(UIKit)
+import UIKit
+#endif
 
 struct EditorView: View {
     let store: NoteStore
@@ -57,10 +60,24 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
     weak var webView: WKWebView?
     private var editorReady = false
     private var saveTimer: Timer?
+    private var pendingMarkdown: String?
 
     init(store: NoteStore, note: NoteFile) {
         self.store = store
         self.note = note
+        super.init()
+        #if os(iOS)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(flushPendingSave),
+            name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        #endif
+    }
+
+    deinit {
+        flushPendingSave()
     }
 
     func createWebView() -> WKWebView {
@@ -106,12 +123,25 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
               let action = body["action"] as? String else { return }
 
         if action == "contentChanged", let markdown = body["markdown"] as? String {
+            pendingMarkdown = markdown
             saveTimer?.invalidate()
             saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
-                guard let self = self else { return }
-                self.store.saveContent(markdown, to: self.note)
+                self?.flushPendingSave()
             }
         }
+    }
+
+    // MARK: Saving
+
+    /// Writes any pending edit to disk immediately. Safe to call repeatedly;
+    /// it is a no-op when there is nothing buffered. Invoked on debounce,
+    /// on app resignation, and on teardown so no edit is lost.
+    @objc func flushPendingSave() {
+        saveTimer?.invalidate()
+        saveTimer = nil
+        guard let markdown = pendingMarkdown else { return }
+        pendingMarkdown = nil
+        store.saveContent(markdown, to: note)
     }
 
     // MARK: Helpers

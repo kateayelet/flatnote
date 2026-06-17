@@ -80,12 +80,25 @@ struct NoteLibraryView: View {
                     let name = newNoteName.trimmingCharacters(in: .whitespaces)
                     if !name.isEmpty {
                         let fullName = name.hasSuffix(".md") ? name : name + ".md"
-                        let note = store.createNote(name: fullName)
-                        selectedNote = note
+                        if let note = store.createNote(name: fullName) {
+                            selectedNote = note
+                        }
                     }
                     newNoteName = ""
                 }
                 Button("Cancel", role: .cancel) { newNoteName = "" }
+            }
+            .alert(
+                "Something Went Wrong",
+                isPresented: Binding(
+                    get: { store.lastError != nil },
+                    set: { if !$0 { store.lastError = nil } }
+                ),
+                presenting: store.lastError
+            ) { _ in
+                Button("OK", role: .cancel) {}
+            } message: { message in
+                Text(message)
             }
         }
     }

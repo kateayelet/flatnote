@@ -29,7 +29,6 @@
 
 /* Begin PBXFileReference section */
 		4B108A882FA7F19E0088E7A5 /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
-		4BBA66232FB9179100066722 /* Resourceseditor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = Resourceseditor.html; sourceTree = "<group>"; };
 		A20000010000000000000001 /* FlatNoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlatNoteApp.swift; sourceTree = "<group>"; };
 		A20000030000000000000003 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
 		A20000060000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
@@ -66,7 +65,6 @@
 				A50000020000000000000002 /* FlatNote */,
 				D70000010000000000000001 /* FlatNoteTests */,
 				A50000030000000000000003 /* Products */,
-				4BBA66232FB9179100066722 /* Resourceseditor.html */,
 			);
 			sourceTree = "<group>";
 		};

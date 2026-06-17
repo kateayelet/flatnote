@@ -11,11 +11,24 @@ struct NoteFile: Identifiable, Hashable {
     var displayName: String {
         (name as NSString).deletingPathExtension
     }
+
+    // Identity is the file URL. Two references to the same note are equal even
+    // if their cached modification dates differ.
+    static func == (lhs: NoteFile, rhs: NoteFile) -> Bool {
+        lhs.id == rhs.id
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+    }
 }
 
 @Observable
 class NoteStore {
     var notes: [NoteFile] = []
+
+    /// Set when a file operation fails so the UI can surface it. Cleared by the view on dismiss.
+    var lastError: String?
 
     private let _directory: URL?
 
@@ -56,9 +69,14 @@ class NoteStore {
         }
     }
 
-    func createNote(name: String) -> NoteFile {
+    func createNote(name: String) -> NoteFile? {
         let url = documentsURL.appendingPathComponent(name)
-        try? "".write(to: url, atomically: true, encoding: .utf8)
+        do {
+            try "".write(to: url, atomically: true, encoding: .utf8)
+        } catch {
+            lastError = "Could not create \"\(name)\". \(error.localizedDescription)"
+            return nil
+        }
         let note = NoteFile(id: url, name: name, modifiedDate: Date())
         notes.insert(note, at: 0)
         return note
@@ -69,12 +87,20 @@ class NoteStore {
     }
 
     func saveContent(_ content: String, to note: NoteFile) {
-        try? content.write(to: note.url, atomically: true, encoding: .utf8)
+        do {
+            try content.write(to: note.url, atomically: true, encoding: .utf8)
+        } catch {
+            lastError = "Could not save \"\(note.displayName)\". \(error.localizedDescription)"
+        }
     }
 
     func deleteNote(_ note: NoteFile) {
-        try? FileManager.default.removeItem(at: note.url)
-        notes.removeAll { $0.id == note.id }
+        do {
+            try FileManager.default.removeItem(at: note.url)
+            notes.removeAll { $0.id == note.id }
+        } catch {
+            lastError = "Could not delete \"\(note.displayName)\". \(error.localizedDescription)"
+        }
     }
 
     func preview(for note: NoteFile) -> String {
@@ -84,13 +110,35 @@ class NoteStore {
     }
 
     func importFile(from url: URL) {
-        guard url.startAccessingSecurityScopedResource() else { return }
+        guard url.startAccessingSecurityScopedResource() else {
+            lastError = "Could not access \"\(url.lastPathComponent)\"."
+            return
+        }
         defer { url.stopAccessingSecurityScopedResource() }
 
-        let content = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
-        let dest = documentsURL.appendingPathComponent(url.lastPathComponent)
-        try? content.write(to: dest, atomically: true, encoding: .utf8)
-        loadNotes()
+        do {
+            let content = try String(contentsOf: url, encoding: .utf8)
+            let dest = uniqueDestination(for: url.lastPathComponent)
+            try content.write(to: dest, atomically: true, encoding: .utf8)
+            loadNotes()
+        } catch {
+            lastError = "Could not import \"\(url.lastPathComponent)\". \(error.localizedDescription)"
+        }
+    }
+
+    /// Returns a destination URL that does not collide with an existing note,
+    /// appending " 2", " 3", ... before the extension as needed.
+    func uniqueDestination(for filename: String) -> URL {
+        let ext = (filename as NSString).pathExtension
+        let base = (filename as NSString).deletingPathExtension
+        var candidate = documentsURL.appendingPathComponent(filename)
+        var counter = 2
+        while FileManager.default.fileExists(atPath: candidate.path) {
+            let newName = ext.isEmpty ? "\(base) \(counter)" : "\(base) \(counter).\(ext)"
+            candidate = documentsURL.appendingPathComponent(newName)
+            counter += 1
+        }
+        return candidate
     }
 
     private func createWelcomeNote() {

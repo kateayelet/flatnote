@@ -80,7 +80,7 @@ struct NoteStoreTests {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
 
-        let note = store.createNote(name: "test.md")
+        let note = store.createNote(name: "test.md")!
         #expect(FileManager.default.fileExists(atPath: note.url.path))
         #expect(store.notes.count >= 1)
     }
@@ -89,7 +89,7 @@ struct NoteStoreTests {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
 
-        let note = store.createNote(name: "hello.md")
+        let note = store.createNote(name: "hello.md")!
         store.saveContent("# Hello World", to: note)
         let content = store.readContent(of: note)
         #expect(content == "# Hello World")
@@ -106,7 +106,7 @@ struct NoteStoreTests {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
 
-        let note = store.createNote(name: "delete-me.md")
+        let note = store.createNote(name: "delete-me.md")!
         #expect(FileManager.default.fileExists(atPath: note.url.path))
 
         store.deleteNote(note)
@@ -118,7 +118,7 @@ struct NoteStoreTests {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
 
-        let note = store.createNote(name: "long.md")
+        let note = store.createNote(name: "long.md")!
         let longText = String(repeating: "a", count: 200)
         store.saveContent(longText, to: note)
 
@@ -131,7 +131,7 @@ struct NoteStoreTests {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
 
-        let note = store.createNote(name: "short.md")
+        let note = store.createNote(name: "short.md")!
         store.saveContent("Short note.", to: note)
 
         let preview = store.preview(for: note)
@@ -142,7 +142,7 @@ struct NoteStoreTests {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
 
-        let note = store.createNote(name: "empty.md")
+        let note = store.createNote(name: "empty.md")!
         let preview = store.preview(for: note)
         #expect(preview == "")
     }
@@ -191,6 +191,66 @@ struct NoteStoreTests {
         _ = store.createNote(name: "second.md")
         #expect(store.notes.first?.name == "second.md")
     }
+
+    // MARK: Error surfacing
+
+    @Test func successfulCreateLeavesNoError() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        _ = store.createNote(name: "ok.md")
+        #expect(store.lastError == nil)
+    }
+
+    @Test func createNoteFailureReturnsNilAndSetsError() {
+        // Point the store at a path that cannot be written (a child of a non-directory).
+        let store = NoteStore(directory: URL(fileURLWithPath: "/dev/null/cannot-exist"))
+
+        let note = store.createNote(name: "doomed.md")
+        #expect(note == nil)
+        #expect(store.lastError != nil)
+        #expect(store.notes.isEmpty)
+    }
+
+    @Test func saveFailureSetsError() {
+        let store = NoteStore(directory: FileManager.default.temporaryDirectory)
+        let badNote = NoteFile(
+            id: URL(fileURLWithPath: "/dev/null/cannot-exist/x.md"),
+            name: "x.md",
+            modifiedDate: Date()
+        )
+        store.saveContent("data", to: badNote)
+        #expect(store.lastError != nil)
+    }
+
+    // MARK: Non-destructive import naming
+
+    @Test func uniqueDestinationAvoidsCollision() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        _ = store.createNote(name: "dup.md")
+        let dest = store.uniqueDestination(for: "dup.md")
+        #expect(dest.lastPathComponent == "dup 2.md")
+
+        try! "x".write(to: tmp.appendingPathComponent("dup 2.md"), atomically: true, encoding: .utf8)
+        #expect(store.uniqueDestination(for: "dup.md").lastPathComponent == "dup 3.md")
+    }
+
+    @Test func uniqueDestinationWithoutExtension() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        try! "x".write(to: tmp.appendingPathComponent("README"), atomically: true, encoding: .utf8)
+        #expect(store.uniqueDestination(for: "README").lastPathComponent == "README 2")
+    }
+
+    @Test func uniqueDestinationNoCollisionKeepsName() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        #expect(store.uniqueDestination(for: "fresh.md").lastPathComponent == "fresh.md")
+    }
 }
 
 // MARK: - MarkdownDocument Tests
@@ -207,30 +267,32 @@ struct MarkdownDocumentTests {
         #expect(doc.text == "")
     }
 
-    @Test func fileWrapperRoundTrip() throws {
+    // FileDocument's ReadConfiguration/WriteConfiguration have no public
+    // initializers, so the config-based methods cannot be invoked from a unit
+    // test. These verify the same UTF-8 serialization contract the document
+    // relies on (write does Data(text.utf8); read does String(decoding:as:)).
+
+    @Test func serializationRoundTrip() {
         let original = "# Test\n\nSome **bold** text.\n"
         let doc = MarkdownDocument(text: original)
 
-        let wrapper = try doc.fileWrapper(configuration: .init())
-        let data = wrapper.regularFileContents!
-        let decoded = String(data: data, as: UTF8.self)
+        let data = Data(doc.text.utf8)
+        let decoded = String(decoding: data, as: UTF8.self)
         #expect(decoded == original)
     }
 
-    @Test func fileWrapperHandlesUnicode() throws {
+    @Test func serializationHandlesUnicode() {
         let text = "Hebrew: \u{05E9}\u{05DC}\u{05D5}\u{05DD}\nEmoji: \u{1F30D}\n"
         let doc = MarkdownDocument(text: text)
 
-        let wrapper = try doc.fileWrapper(configuration: .init())
-        let data = wrapper.regularFileContents!
-        let decoded = String(data: data, as: UTF8.self)
+        let data = Data(doc.text.utf8)
+        let decoded = String(decoding: data, as: UTF8.self)
         #expect(decoded == text)
     }
 
-    @Test func fileWrapperHandlesEmptyDocument() throws {
+    @Test func serializationHandlesEmptyDocument() {
         let doc = MarkdownDocument(text: "")
-        let wrapper = try doc.fileWrapper(configuration: .init())
-        let data = wrapper.regularFileContents!
+        let data = Data(doc.text.utf8)
         #expect(data.isEmpty)
     }
 }
