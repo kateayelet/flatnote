@@ -17,15 +17,23 @@ struct NoteFile: Identifiable, Hashable {
 class NoteStore {
     var notes: [NoteFile] = []
 
+    private let _directory: URL?
+
     private var documentsURL: URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        _directory ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
     }
 
     init() {
+        _directory = nil
         loadNotes()
         if notes.isEmpty {
             createWelcomeNote()
         }
+    }
+
+    init(directory: URL) {
+        _directory = directory
+        loadNotes()
     }
 
     func loadNotes() {
