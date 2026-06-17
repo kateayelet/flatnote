@@ -146,7 +146,7 @@ struct NoteLibraryView: View {
                 Text("Enter a new name for this note.")
             }
             .sheet(isPresented: $showingSettings) {
-                SettingsView(noteCount: store.notes.count)
+                SettingsView(noteCount: store.notes.count, noteURLs: store.notes.map(\.url))
             }
             .alert(
                 "Something Went Wrong",
@@ -168,6 +168,7 @@ struct NoteLibraryView: View {
 
 struct SettingsView: View {
     let noteCount: Int
+    let noteURLs: [URL]
     @Environment(\.dismiss) private var dismiss
 
     private var appVersion: String {
@@ -182,6 +183,18 @@ struct SettingsView: View {
                 Section("Library") {
                     LabeledContent("Notes", value: "\(noteCount)")
                     LabeledContent("Stored", value: "On this device")
+                }
+
+                if !noteURLs.isEmpty {
+                    Section {
+                        ShareLink(items: noteURLs) {
+                            Label("Export All Notes", systemImage: "square.and.arrow.up")
+                        }
+                    } header: {
+                        Text("Export")
+                    } footer: {
+                        Text("Share or save every note as .md files. Your notes are also available in the Files app under FlatNote.")
+                    }
                 }
 
                 Section {
