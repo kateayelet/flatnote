@@ -146,7 +146,11 @@ struct NoteLibraryView: View {
                 Text("Enter a new name for this note.")
             }
             .sheet(isPresented: $showingSettings) {
-                SettingsView(noteCount: store.notes.count, noteURLs: store.notes.map(\.url))
+                SettingsView(
+                    noteCount: store.notes.count,
+                    noteURLs: store.notes.map(\.url),
+                    iCloudAvailable: store.iCloudAvailable
+                )
             }
             .alert(
                 "Something Went Wrong",
@@ -169,6 +173,7 @@ struct NoteLibraryView: View {
 struct SettingsView: View {
     let noteCount: Int
     let noteURLs: [URL]
+    let iCloudAvailable: Bool
     @Environment(\.dismiss) private var dismiss
 
     private var appVersion: String {
@@ -180,9 +185,15 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                Section("Library") {
+                Section {
                     LabeledContent("Notes", value: "\(noteCount)")
-                    LabeledContent("Stored", value: "On this device")
+                    LabeledContent("Sync", value: iCloudAvailable ? "iCloud" : "This device only")
+                } header: {
+                    Text("Library")
+                } footer: {
+                    Text(iCloudAvailable
+                        ? "Your notes sync across your devices through iCloud, signed in with your Apple ID."
+                        : "Notes are stored on this device. Sign in to iCloud to sync them across your devices.")
                 }
 
                 if !noteURLs.isEmpty {

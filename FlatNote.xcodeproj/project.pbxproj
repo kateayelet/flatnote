@@ -355,6 +355,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = SMQ3T59TFL;
+				CODE_SIGN_ENTITLEMENTS = FlatNote/FlatNote.entitlements;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FlatNote/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
@@ -382,6 +383,7 @@
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = SMQ3T59TFL;
+				CODE_SIGN_ENTITLEMENTS = FlatNote/FlatNote.entitlements;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FlatNote/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;

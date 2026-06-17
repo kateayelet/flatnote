@@ -30,49 +30,151 @@ class NoteStore {
     /// Set when a file operation fails so the UI can surface it. Cleared by the view on dismiss.
     var lastError: String?
 
-    private let _directory: URL?
+    /// True once notes are being stored in (and synced through) iCloud.
+    var iCloudAvailable = false
 
-    private var documentsURL: URL {
-        _directory ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-    }
+    /// The iCloud container identifier. Must match the app's iCloud capability.
+    private let ubiquityContainerID = "iCloud.com.aftrveil.flatnote"
+
+    /// When set (tests), storage is this fixed local directory and iCloud is skipped.
+    private let injectedDirectory: URL?
+
+    /// The directory notes are read from and written to. Starts local and is
+    /// swapped to the iCloud Documents container once that resolves.
+    private var storageURL: URL
+
+    private var documentsURL: URL { storageURL }
 
     init() {
-        _directory = nil
-        loadNotes()
-        if notes.isEmpty {
-            createWelcomeNote()
-        }
+        injectedDirectory = nil
+        storageURL = Self.localDocumentsURL()
+        // iCloud lookup can block, so resolve storage off the main thread and
+        // seed/load once the real location (iCloud or local) is settled.
+        resolveStorageAndLoad()
     }
 
     init(directory: URL) {
-        _directory = directory
+        injectedDirectory = directory
+        storageURL = directory
         loadNotes()
     }
 
-    func loadNotes() {
-        do {
-            let contents = try FileManager.default.contentsOfDirectory(
-                at: documentsURL,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: .skipsHiddenFiles
-            )
-            notes = contents
-                .filter { ["md", "markdown", "txt"].contains($0.pathExtension.lowercased()) }
-                .compactMap { url -> NoteFile? in
-                    let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-                    let modified = attrs?[.modificationDate] as? Date ?? Date()
-                    return NoteFile(id: url, name: url.lastPathComponent, modifiedDate: modified)
+    private static func localDocumentsURL() -> URL {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    }
+
+    // MARK: - Storage resolution (iCloud with local fallback)
+
+    private func resolveStorageAndLoad() {
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            var resolved = Self.localDocumentsURL()
+            var iCloud = false
+
+            if let container = FileManager.default.url(forUbiquityContainerIdentifier: self.ubiquityContainerID) {
+                let iCloudDocs = container.appendingPathComponent("Documents", isDirectory: true)
+                try? FileManager.default.createDirectory(at: iCloudDocs, withIntermediateDirectories: true)
+                self.migrateLocalNotes(from: Self.localDocumentsURL(), to: iCloudDocs)
+                resolved = iCloudDocs
+                iCloud = true
+            }
+
+            DispatchQueue.main.async {
+                self.storageURL = resolved
+                self.iCloudAvailable = iCloud
+                self.loadNotes()
+                if self.notes.isEmpty {
+                    self.createWelcomeNote()
                 }
-                .sorted { $0.modifiedDate > $1.modifiedDate }
-        } catch {
-            notes = []
+            }
         }
+    }
+
+    /// Moves any local-only notes into iCloud the first time iCloud appears,
+    /// skipping names that already exist there.
+    private func migrateLocalNotes(from localDocs: URL, to iCloudDocs: URL) {
+        guard let items = try? FileManager.default.contentsOfDirectory(
+            at: localDocs, includingPropertiesForKeys: nil, options: .skipsHiddenFiles
+        ) else { return }
+
+        for item in items where ["md", "markdown", "txt"].contains(item.pathExtension.lowercased()) {
+            let dest = iCloudDocs.appendingPathComponent(item.lastPathComponent)
+            if FileManager.default.fileExists(atPath: dest.path) { continue }
+            try? FileManager.default.setUbiquitous(true, itemAt: item, destinationURL: dest)
+        }
+    }
+
+    /// Maps an iCloud placeholder URL (".Note.md.icloud") back to its real name.
+    private static func resolveICloudPlaceholder(_ url: URL) -> URL {
+        let name = url.lastPathComponent
+        guard name.hasPrefix("."), name.hasSuffix(".icloud") else { return url }
+        let real = String(name.dropFirst().dropLast(".icloud".count))
+        return url.deletingLastPathComponent().appendingPathComponent(real)
+    }
+
+    // MARK: - Coordinated file access (safe for iCloud and local)
+
+    private func coordinatedRead(_ url: URL) -> String {
+        var text = ""
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { resolved in
+            text = (try? String(contentsOf: resolved, encoding: .utf8)) ?? ""
+        }
+        return text
+    }
+
+    private func coordinatedWrite(_ content: String, to url: URL) throws {
+        var coordError: NSError?
+        var writeError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: .forReplacing, error: &coordError) { resolved in
+            do { try content.write(to: resolved, atomically: true, encoding: .utf8) }
+            catch { writeError = error }
+        }
+        if let writeError { throw writeError }
+        if let coordError { throw coordError }
+    }
+
+    private func coordinatedDelete(_ url: URL) throws {
+        var coordError: NSError?
+        var deleteError: Error?
+        NSFileCoordinator().coordinate(writingItemAt: url, options: .forDeleting, error: &coordError) { resolved in
+            do { try FileManager.default.removeItem(at: resolved) }
+            catch { deleteError = error }
+        }
+        if let deleteError { throw deleteError }
+        if let coordError { throw coordError }
+    }
+
+    // MARK: - Notes API
+
+    func loadNotes() {
+        guard let contents = try? FileManager.default.contentsOfDirectory(
+            at: storageURL,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: []
+        ) else {
+            notes = []
+            return
+        }
+        notes = contents
+            .compactMap { url -> NoteFile? in
+                let resolved = Self.resolveICloudPlaceholder(url)
+                guard ["md", "markdown", "txt"].contains(resolved.pathExtension.lowercased()) else { return nil }
+                if resolved != url {
+                    // Not-yet-downloaded iCloud item: pull it for the next load.
+                    try? FileManager.default.startDownloadingUbiquitousItem(at: resolved)
+                }
+                let attrs = try? FileManager.default.attributesOfItem(atPath: resolved.path)
+                let modified = attrs?[.modificationDate] as? Date ?? Date()
+                return NoteFile(id: resolved, name: resolved.lastPathComponent, modifiedDate: modified)
+            }
+            .sorted { $0.modifiedDate > $1.modifiedDate }
     }
 
     func createNote(name: String) -> NoteFile? {
         let url = documentsURL.appendingPathComponent(name)
         do {
-            try "".write(to: url, atomically: true, encoding: .utf8)
+            try coordinatedWrite("", to: url)
         } catch {
             lastError = "Could not create \"\(name)\". \(error.localizedDescription)"
             return nil
@@ -83,12 +185,12 @@ class NoteStore {
     }
 
     func readContent(of note: NoteFile) -> String {
-        (try? String(contentsOf: note.url, encoding: .utf8)) ?? ""
+        coordinatedRead(note.url)
     }
 
     func saveContent(_ content: String, to note: NoteFile) {
         do {
-            try content.write(to: note.url, atomically: true, encoding: .utf8)
+            try coordinatedWrite(content, to: note.url)
         } catch {
             lastError = "Could not save \"\(note.displayName)\". \(error.localizedDescription)"
         }
@@ -129,7 +231,7 @@ class NoteStore {
 
     func deleteNote(_ note: NoteFile) {
         do {
-            try FileManager.default.removeItem(at: note.url)
+            try coordinatedDelete(note.url)
             notes.removeAll { $0.id == note.id }
         } catch {
             lastError = "Could not delete \"\(note.displayName)\". \(error.localizedDescription)"
@@ -152,7 +254,7 @@ class NoteStore {
         do {
             let content = try String(contentsOf: url, encoding: .utf8)
             let dest = uniqueDestination(for: url.lastPathComponent)
-            try content.write(to: dest, atomically: true, encoding: .utf8)
+            try coordinatedWrite(content, to: dest)
             loadNotes()
         } catch {
             lastError = "Could not import \"\(url.lastPathComponent)\". \(error.localizedDescription)"
@@ -207,7 +309,7 @@ class NoteStore {
         Tap **+** to create a new note.
         """
         let url = documentsURL.appendingPathComponent("Welcome to FlatNote.md")
-        try? content.write(to: url, atomically: true, encoding: .utf8)
+        try? coordinatedWrite(content, to: url)
         loadNotes()
     }
 }
