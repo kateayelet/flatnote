@@ -12,6 +12,7 @@
 		A10000030000000000000003 /* EditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000030000000000000003 /* EditorView.swift */; };
 		A10000060000000000000006 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000060000000000000006 /* Assets.xcassets */; };
 		A10000070000000000000007 /* editor.html in Resources */ = {isa = PBXBuildFile; fileRef = A20000070000000000000007 /* editor.html */; };
+		A10000090000000000000009 /* render.js in Resources */ = {isa = PBXBuildFile; fileRef = A20000090000000000000009 /* render.js */; };
 		C10000010000000000000001 /* NoteLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* NoteLibraryView.swift */; };
 		C10000020000000000000002 /* NoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000020000000000000002 /* NoteStore.swift */; };
 		D10000010000000000000001 /* FlatNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* FlatNoteTests.swift */; };
@@ -33,6 +34,7 @@
 		A20000030000000000000003 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
 		A20000060000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000070000000000000007 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
+		A20000090000000000000009 /* render.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = render.js; sourceTree = "<group>"; };
 		A20000080000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A30000010000000000000001 /* FlatNote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FlatNote.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C20000010000000000000001 /* NoteLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteLibraryView.swift; sourceTree = "<group>"; };
@@ -96,6 +98,7 @@
 			isa = PBXGroup;
 			children = (
 				A20000070000000000000007 /* editor.html */,
+				A20000090000000000000009 /* render.js */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -190,6 +193,7 @@
 			files = (
 				A10000060000000000000006 /* Assets.xcassets in Resources */,
 				A10000070000000000000007 /* editor.html in Resources */,
+				A10000090000000000000009 /* render.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -61,6 +61,8 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
     private var editorReady = false
     private var saveTimer: Timer?
     private var pendingMarkdown: String?
+    /// The content last pushed into the editor, used to detect external edits.
+    private var loadedContent: String?
 
     init(store: NoteStore, note: NoteFile) {
         self.store = store
@@ -71,6 +73,12 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
             self,
             selector: #selector(flushPendingSave),
             name: UIApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshFromDiskIfClean),
+            name: UIApplication.didBecomeActiveNotification,
             object: nil
         )
         #endif
@@ -110,7 +118,20 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         editorReady = true
         let content = store.readContent(of: note)
+        loadedContent = content
         let escaped = Self.escapeForJS(content)
+        webView.evaluateJavaScript("setContent(`\(escaped)`)")
+    }
+
+    /// When the app returns to the foreground, pick up edits made to this file
+    /// elsewhere (e.g. the Files app), but never overwrite unsaved in-progress
+    /// edits: if there is buffered content, the user's version wins.
+    @objc func refreshFromDiskIfClean() {
+        guard editorReady, pendingMarkdown == nil, let webView else { return }
+        let disk = store.readContent(of: note)
+        guard disk != loadedContent else { return }
+        loadedContent = disk
+        let escaped = Self.escapeForJS(disk)
         webView.evaluateJavaScript("setContent(`\(escaped)`)")
     }
 

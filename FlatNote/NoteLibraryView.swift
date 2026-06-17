@@ -2,6 +2,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct NoteLibraryView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var store = NoteStore()
     @State private var selectedNote: NoteFile?
     @State private var searchText = ""
@@ -78,6 +79,10 @@ struct NoteLibraryView: View {
             )
             .navigationDestination(item: $selectedNote) { note in
                 EditorView(store: store, note: note)
+            }
+            .onChange(of: scenePhase) { _, phase in
+                // Pick up notes added or removed outside the app.
+                if phase == .active { store.loadNotes() }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

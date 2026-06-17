@@ -7,6 +7,7 @@
 
 import Testing
 import Foundation
+import JavaScriptCore
 @testable import FlatNote
 
 // MARK: - NoteFile Tests
@@ -294,5 +295,98 @@ struct MarkdownDocumentTests {
         let doc = MarkdownDocument(text: "")
         let data = Data(doc.text.utf8)
         #expect(data.isEmpty)
+    }
+}
+
+// MARK: - Markdown renderer (JavaScriptCore)
+
+/// Exercises the real editor renderer (FlatNote/Resources/render.js) in a JS
+/// context, so the markdown -> HTML logic is covered without a live WebView.
+struct MarkdownRenderTests {
+
+    private func makeRenderer() throws -> (String) -> String {
+        let bundle = Bundle(for: NoteStore.self)
+        let url = try #require(
+            bundle.url(forResource: "render", withExtension: "js"),
+            "render.js must be bundled with the app"
+        )
+        let js = try String(contentsOf: url, encoding: .utf8)
+        let ctx = try #require(JSContext())
+        ctx.evaluateScript(js)
+        return { md in
+            ctx.objectForKeyedSubscript("renderMarkdown")?
+                .call(withArguments: [md])?.toString() ?? ""
+        }
+    }
+
+    /// Approximates DOM textContent by removing tags and unescaping entities.
+    private func textContent(_ html: String) -> String {
+        var out = ""
+        var inTag = false
+        for ch in html {
+            if ch == "<" { inTag = true }
+            else if ch == ">" { inTag = false }
+            else if !inTag { out.append(ch) }
+        }
+        return out
+            .replacingOccurrences(of: "&lt;", with: "<")
+            .replacingOccurrences(of: "&gt;", with: ">")
+            .replacingOccurrences(of: "&amp;", with: "&")
+    }
+
+    @Test func headingRendersWithoutVisibleHash() throws {
+        let render = try makeRenderer()
+        let html = render("# Title")
+        #expect(html.contains("line-h1"))
+        #expect(html.contains("class=\"mk\">#"))   // marker present, hidden via CSS
+        #expect(html.contains("Title"))
+    }
+
+    @Test func bulletGetsListMarkerClass() throws {
+        let render = try makeRenderer()
+        #expect(render("- item").contains("list-mk"))
+    }
+
+    @Test func uncheckedTaskRendersEmptyBox() throws {
+        let render = try makeRenderer()
+        let html = render("- [ ] todo")
+        #expect(html.contains("task-cb-vis"))
+        #expect(!html.contains("task-cb-vis checked"))
+    }
+
+    @Test func checkedTaskRendersCheckedBox() throws {
+        let render = try makeRenderer()
+        #expect(render("- [x] done").contains("task-cb-vis checked"))
+    }
+
+    @Test func boldRendersAndDoesNotLeakItalic() throws {
+        let render = try makeRenderer()
+        let html = render("**bold**")
+        #expect(html.contains("md-bold"))
+        #expect(html.contains(">bold<"))
+        #expect(!html.contains("md-italic"))   // single-pass tokenizer guard
+    }
+
+    @Test func htmlIsEscaped() throws {
+        let render = try makeRenderer()
+        let html = render("a < b & c")
+        #expect(html.contains("&lt;"))
+        #expect(html.contains("&amp;"))
+    }
+
+    @Test func renderedTextContentEqualsSourceLine() throws {
+        // The editor's core invariant: stripping tags from a rendered line
+        // returns the exact markdown source, which is what keeps cursor
+        // offsets aligned with the source string.
+        let render = try makeRenderer()
+        let cases = [
+            "# Title", "## Sub", "- item", "* star", "1. first",
+            "- [ ] todo", "- [x] done", "> quote",
+            "**bold** and *italic* and ~~strike~~ and `code`",
+            "a < b & c", "plain text", "",
+        ]
+        for md in cases {
+            #expect(textContent(render(md)) == md, "textContent must equal source for: \(md)")
+        }
     }
 }
