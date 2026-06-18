@@ -5,13 +5,18 @@ struct NoteLibraryView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var store = NoteStore()
     @State private var selectedNote: NoteFile?
+    @State private var newNoteID: URL?
     @State private var searchText = ""
-    @State private var showingNewNoteAlert = false
-    @State private var showingImporter = false
     @State private var showingSettings = false
-    @State private var newNoteName = ""
     @State private var renamingNote: NoteFile?
     @State private var renameText = ""
+
+    private func createAndOpenNote() {
+        if let note = store.createBlankNote() {
+            newNoteID = note.id
+            selectedNote = note
+        }
+    }
 
     private var filteredNotes: [NoteFile] {
         if searchText.isEmpty { return store.notes }
@@ -34,7 +39,7 @@ struct NoteLibraryView: View {
                     } description: {
                         Text("Your notes will appear here. Create one to get started.")
                     } actions: {
-                        Button("New Note") { showingNewNoteAlert = true }
+                        Button("New Note") { createAndOpenNote() }
                             .buttonStyle(.borderedProminent)
                     }
                 } else if filteredNotes.isEmpty {
@@ -93,7 +98,7 @@ struct NoteLibraryView: View {
                 prompt: "Search Notes"
             )
             .navigationDestination(item: $selectedNote) { note in
-                EditorView(store: store, note: note)
+                EditorView(store: store, note: note, isNew: note.id == newNoteID)
             }
             .onChange(of: scenePhase) { _, phase in
                 // Pick up notes added or removed outside the app.
@@ -106,39 +111,12 @@ struct NoteLibraryView: View {
                     }
                     .tint(.primary)
                 }
-                ToolbarItemGroup(placement: .primaryAction) {
-                    Button { showingImporter = true } label: {
-                        Image(systemName: "square.and.arrow.down")
-                    }
-                    .tint(.primary)
-                    Button { showingNewNoteAlert = true } label: {
+                ToolbarItem(placement: .primaryAction) {
+                    Button { createAndOpenNote() } label: {
                         Image(systemName: "square.and.pencil")
                     }
                     .tint(.primary)
                 }
-            }
-            .fileImporter(
-                isPresented: $showingImporter,
-                allowedContentTypes: [.plainText],
-                allowsMultipleSelection: false
-            ) { result in
-                if case .success(let urls) = result, let url = urls.first {
-                    store.importFile(from: url)
-                }
-            }
-            .alert("New Note", isPresented: $showingNewNoteAlert) {
-                TextField("filename", text: $newNoteName)
-                Button("Create") {
-                    let name = newNoteName.trimmingCharacters(in: .whitespaces)
-                    if !name.isEmpty {
-                        let fullName = name.hasSuffix(".md") ? name : name + ".md"
-                        if let note = store.createNote(name: fullName) {
-                            selectedNote = note
-                        }
-                    }
-                    newNoteName = ""
-                }
-                Button("Cancel", role: .cancel) { newNoteName = "" }
             }
             .alert("Rename Note", isPresented: Binding(
                 get: { renamingNote != nil },

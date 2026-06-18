@@ -171,6 +171,49 @@ class NoteStore {
             .sorted { $0.modifiedDate > $1.modifiedDate }
     }
 
+    /// Creates an empty, uniquely-named note to open immediately. Its real
+    /// title is derived from the first line when the editor closes.
+    func createBlankNote() -> NoteFile? {
+        let name = uniqueDestination(for: "New Note.md").lastPathComponent
+        return createNote(name: name)
+    }
+
+    /// Derives a filename-safe title from the first non-empty line of content.
+    static func titleFromContent(_ content: String) -> String {
+        let firstLine = content
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .lazy
+            .map { strippedMarkdown(String($0)).trimmingCharacters(in: .whitespaces) }
+            .first(where: { !$0.isEmpty }) ?? ""
+        var title = firstLine
+            .replacingOccurrences(of: "/", with: "-")
+            .replacingOccurrences(of: ":", with: "-")
+        if title.count > 50 {
+            title = String(title.prefix(50)).trimmingCharacters(in: .whitespaces)
+        }
+        return title
+    }
+
+    /// Renames a note to match its first line, deduplicating collisions. No-op
+    /// when the first line is empty or already matches the current name.
+    @discardableResult
+    func renameToFirstLine(_ note: NoteFile, content: String) -> NoteFile {
+        let title = Self.titleFromContent(content)
+        guard !title.isEmpty, title != note.displayName else { return note }
+        let ext = note.url.pathExtension.isEmpty ? "md" : note.url.pathExtension
+        let dest = uniqueDestination(for: "\(title).\(ext)")
+        do {
+            try FileManager.default.moveItem(at: note.url, to: dest)
+        } catch {
+            return note
+        }
+        let renamed = NoteFile(id: dest, name: dest.lastPathComponent, modifiedDate: Date())
+        if let idx = notes.firstIndex(where: { $0.id == note.id }) {
+            notes[idx] = renamed
+        }
+        return renamed
+    }
+
     func createNote(name: String) -> NoteFile? {
         let url = documentsURL.appendingPathComponent(name)
         do {
@@ -340,33 +383,43 @@ class NoteStore {
         let content = """
         # Welcome to FlatNote
 
-        FlatNote is a plain markdown editor. Everything you write here is saved as a **.md** file.
+        FlatNote formats your writing as you type. Here is how, with the symbol to type on the left and what it becomes below it.
 
-        ## Why Markdown?
+        ## Headings
 
-        Markdown files are plain text. They will never corrupt, never require a specific app to open, and never become unreadable. No proprietary formats. No lock-in. Your words belong to you.
+        Start a line with `#` for a big heading, or `##` for a smaller one:
 
-        ## Quick Reference
+        ## A smaller heading
 
-        *italic* -- single asterisks
-        **bold** -- double asterisks
-        ~~strikethrough~~ -- double tildes
-        `inline code` -- backticks
+        ## Bold and italic
 
-        # Heading 1
-        ## Heading 2
-        ### Heading 3
+        Type `**two asterisks**` around words for **two asterisks** bold, or `*one asterisk*` for *one asterisk* italic. Type `~~tildes~~` for ~~strikethrough~~.
 
-        - Bullet item
-        1. Numbered item
-        - [ ] Task
-        - [x] Done
+        ## Lists
 
-        > Blockquote
+        Start a line with `-` for a bullet:
+
+        - A bullet
+        - Another bullet
+
+        Add `[ ]` after the dash for a checkbox you can tap:
+
+        - [ ] Something to do
+        - [x] Something done
+
+        ## Links
+
+        Type `[words](https://example.com)` to make a [link](https://example.com).
+
+        ## Quotes
+
+        Start a line with `>` for a quote:
+
+        > Like this
 
         ---
 
-        Tap **+** to create a new note.
+        That is everything. Your notes are saved as plain .md files that belong to you. Tap the compose button to start writing.
         """
         let url = documentsURL.appendingPathComponent("Welcome to FlatNote.md")
         try? coordinatedWrite(content, to: url)

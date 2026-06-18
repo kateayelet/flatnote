@@ -277,6 +277,35 @@ struct NoteStoreTests {
         #expect((try? String(contentsOf: export, encoding: .utf8)) == "hello")
     }
 
+    @Test func titleFromContentUsesFirstNonEmptyLine() {
+        #expect(NoteStore.titleFromContent("# Grocery list\nmilk\neggs") == "Grocery list")
+        #expect(NoteStore.titleFromContent("\n\n  - first real line") == "first real line")
+        #expect(NoteStore.titleFromContent("   \n\t") == "")
+        #expect(NoteStore.titleFromContent("a/b: c") == "a-b- c")
+    }
+
+    @Test func renameToFirstLineRenamesBlankNote() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        let note = store.createBlankNote()!
+        #expect(note.displayName == "New Note")
+        store.saveContent("# Shopping\nmilk", to: note)
+        let renamed = store.renameToFirstLine(note, content: "# Shopping\nmilk")
+        #expect(renamed.displayName == "Shopping")
+        #expect(FileManager.default.fileExists(atPath: renamed.url.path))
+        #expect(!FileManager.default.fileExists(atPath: note.url.path))
+    }
+
+    @Test func createBlankNoteDeduplicates() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        let a = store.createBlankNote()!
+        let b = store.createBlankNote()!
+        #expect(a.url != b.url)
+    }
+
     @Test func strippedMarkdownRemovesSyntax() {
         let md = "# Title\n\n- a **bold** item\n> quote\n[link](http://x)\n`code`"
         let plain = NoteStore.strippedMarkdown(md)

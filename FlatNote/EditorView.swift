@@ -10,6 +10,8 @@ final class EditorController {
     weak var webView: WKWebView?
     var matchCount = 0
     var currentMatch = 0
+    /// Called when the editor closes, to flush and title the note.
+    var onClose: (() -> Void)?
 
     func setSearch(_ query: String) {
         guard let webView else { return }
@@ -43,13 +45,14 @@ final class EditorController {
 struct EditorView: View {
     let store: NoteStore
     let note: NoteFile
+    var isNew: Bool = false
 
     @State private var controller = EditorController()
     @State private var showingFind = false
     @State private var findText = ""
 
     var body: some View {
-        EditorWebView(store: store, note: note, controller: controller)
+        EditorWebView(store: store, note: note, controller: controller, isNew: isNew)
             #if os(iOS)
             .ignoresSafeArea(.container, edges: .bottom)
             .navigationBarTitleDisplayMode(.inline)
@@ -72,6 +75,7 @@ struct EditorView: View {
                     findBar
                 }
             }
+            .onDisappear { controller.onClose?() }
             #if DEBUG
             .onAppear {
                 // Screenshot hook: launch with SIMCTL_CHILD_FLATNOTE_FIND=<term>
@@ -146,9 +150,10 @@ struct EditorWebView: UIViewRepresentable {
     let store: NoteStore
     let note: NoteFile
     let controller: EditorController
+    let isNew: Bool
 
     func makeCoordinator() -> EditorCoordinator {
-        EditorCoordinator(store: store, note: note, controller: controller)
+        EditorCoordinator(store: store, note: note, controller: controller, isNew: isNew)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -162,9 +167,10 @@ struct EditorWebView: NSViewRepresentable {
     let store: NoteStore
     let note: NoteFile
     let controller: EditorController
+    let isNew: Bool
 
     func makeCoordinator() -> EditorCoordinator {
-        EditorCoordinator(store: store, note: note, controller: controller)
+        EditorCoordinator(store: store, note: note, controller: controller, isNew: isNew)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -179,19 +185,24 @@ struct EditorWebView: NSViewRepresentable {
 
 class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     let store: NoteStore
-    let note: NoteFile
+    var note: NoteFile
     let controller: EditorController
+    let isNew: Bool
     weak var webView: WKWebView?
     private var editorReady = false
     private var saveTimer: Timer?
     private var pendingMarkdown: String?
     /// The content last pushed into the editor, used to detect external edits.
     private var loadedContent: String?
+    /// The latest known content, used to title the note on close.
+    private var currentContent = ""
+    private var finalized = false
 
-    init(store: NoteStore, note: NoteFile, controller: EditorController) {
+    init(store: NoteStore, note: NoteFile, controller: EditorController, isNew: Bool) {
         self.store = store
         self.note = note
         self.controller = controller
+        self.isNew = isNew
         super.init()
         #if os(iOS)
         NotificationCenter.default.addObserver(
@@ -227,6 +238,7 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         webView.navigationDelegate = self
         self.webView = webView
         controller.webView = webView
+        controller.onClose = { [weak self] in self?.closeNote() }
 
         #if os(iOS)
         webView.isOpaque = true
@@ -249,6 +261,7 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         editorReady = true
         let content = store.readContent(of: note)
         loadedContent = content
+        currentContent = content
         let escaped = Self.escapeForJS(content)
         webView.evaluateJavaScript("setContent(`\(escaped)`)")
     }
@@ -275,10 +288,27 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
 
         if action == "contentChanged", let markdown = body["markdown"] as? String {
             pendingMarkdown = markdown
+            currentContent = markdown
             saveTimer?.invalidate()
             saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
                 self?.flushPendingSave()
             }
+        }
+    }
+
+    // MARK: Closing
+
+    /// Called when the editor closes: save, then title a brand-new note from
+    /// its first line, or discard it if it was never written to.
+    func closeNote() {
+        guard !finalized else { return }
+        finalized = true
+        flushPendingSave()
+        guard isNew else { return }
+        if currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            store.deleteNote(note)
+        } else {
+            note = store.renameToFirstLine(note, content: currentContent)
         }
     }
 
