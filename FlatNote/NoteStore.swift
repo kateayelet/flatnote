@@ -261,6 +261,43 @@ class NoteStore {
         }
     }
 
+    // MARK: - Markdown export
+
+    private func exportTempDir() -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("FlatNoteExport", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    /// A URL that exports this note as markdown. Notes already stored as .md
+    /// export their own file; .txt or other notes get a .md copy of their
+    /// content so everything leaves the app as markdown.
+    func markdownExportURL(for note: NoteFile) -> URL {
+        guard note.url.pathExtension.lowercased() != "md" else { return note.url }
+        let dest = exportTempDir().appendingPathComponent(note.displayName + ".md")
+        try? readContent(of: note).write(to: dest, atomically: true, encoding: .utf8)
+        return dest
+    }
+
+    /// Markdown export URLs for every note. All notes are written as deduped
+    /// .md files in a temp folder so the batch is uniform and collision-free.
+    func markdownExportURLs() -> [URL] {
+        let dir = exportTempDir()
+        var used = Set<String>()
+        return notes.map { note in
+            var name = note.displayName + ".md"
+            var counter = 2
+            while used.contains(name.lowercased()) {
+                name = "\(note.displayName) \(counter).md"
+                counter += 1
+            }
+            used.insert(name.lowercased())
+            let dest = dir.appendingPathComponent(name)
+            try? readContent(of: note).write(to: dest, atomically: true, encoding: .utf8)
+            return dest
+        }
+    }
+
     /// Returns a destination URL that does not collide with an existing note,
     /// appending " 2", " 3", ... before the extension as needed.
     func uniqueDestination(for filename: String) -> URL {

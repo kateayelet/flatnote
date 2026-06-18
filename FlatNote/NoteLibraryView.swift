@@ -42,7 +42,7 @@ struct NoteLibraryView: View {
                                     } label: {
                                         Label("Rename", systemImage: "pencil")
                                     }
-                                    ShareLink(item: note.url) {
+                                    ShareLink(item: store.markdownExportURL(for: note)) {
                                         Label("Export", systemImage: "square.and.arrow.up")
                                     }
                                     Button(role: .destructive) {
@@ -148,7 +148,7 @@ struct NoteLibraryView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView(
                     noteCount: store.notes.count,
-                    noteURLs: store.notes.map(\.url),
+                    noteURLs: store.markdownExportURLs(),
                     iCloudAvailable: store.iCloudAvailable
                 )
             }

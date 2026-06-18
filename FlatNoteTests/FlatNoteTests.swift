@@ -252,6 +252,43 @@ struct NoteStoreTests {
 
         #expect(store.uniqueDestination(for: "fresh.md").lastPathComponent == "fresh.md")
     }
+
+    // MARK: Markdown export
+
+    @Test func exportOfMarkdownNoteUsesOriginalFile() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        let note = store.createNote(name: "keep.md")!
+        #expect(store.markdownExportURL(for: note) == note.url)
+    }
+
+    @Test func exportOfTxtNoteBecomesMarkdown() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        let txt = tmp.appendingPathComponent("plain.txt")
+        try! "hello".write(to: txt, atomically: true, encoding: .utf8)
+        store.loadNotes()
+        let note = store.notes.first { $0.name == "plain.txt" }!
+
+        let export = store.markdownExportURL(for: note)
+        #expect(export.pathExtension == "md")
+        #expect((try? String(contentsOf: export, encoding: .utf8)) == "hello")
+    }
+
+    @Test func exportAllProducesOnlyMarkdownURLs() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        _ = store.createNote(name: "a.md")
+        try! "x".write(to: tmp.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
+        store.loadNotes()
+
+        let urls = store.markdownExportURLs()
+        #expect(urls.count == store.notes.count)
+        #expect(urls.allSatisfy { $0.pathExtension == "md" })
+    }
 }
 
 // MARK: - MarkdownDocument Tests
