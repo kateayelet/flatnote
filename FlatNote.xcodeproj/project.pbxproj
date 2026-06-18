@@ -30,12 +30,13 @@
 
 /* Begin PBXFileReference section */
 		4B108A882FA7F19E0088E7A5 /* MarkdownDocument.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownDocument.swift; sourceTree = "<group>"; };
+		4BDC5E312FE3D480006B57CB /* FlatNote.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = FlatNote.entitlements; sourceTree = "<group>"; };
 		A20000010000000000000001 /* FlatNoteApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlatNoteApp.swift; sourceTree = "<group>"; };
 		A20000030000000000000003 /* EditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorView.swift; sourceTree = "<group>"; };
 		A20000060000000000000006 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000070000000000000007 /* editor.html */ = {isa = PBXFileReference; lastKnownFileType = text.html; path = editor.html; sourceTree = "<group>"; };
-		A20000090000000000000009 /* render.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = render.js; sourceTree = "<group>"; };
 		A20000080000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000090000000000000009 /* render.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = render.js; sourceTree = "<group>"; };
 		A30000010000000000000001 /* FlatNote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FlatNote.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C20000010000000000000001 /* NoteLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteLibraryView.swift; sourceTree = "<group>"; };
 		C20000020000000000000002 /* NoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStore.swift; sourceTree = "<group>"; };
@@ -67,6 +68,7 @@
 				A50000020000000000000002 /* FlatNote */,
 				D70000010000000000000001 /* FlatNoteTests */,
 				A50000030000000000000003 /* Products */,
+				4BDC5E312FE3D480006B57CB /* FlatNote.entitlements */,
 			);
 			sourceTree = "<group>";
 		};
@@ -352,10 +354,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = FlatNote/FlatNote.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = SMQ3T59TFL;
-				CODE_SIGN_ENTITLEMENTS = FlatNote/FlatNote.entitlements;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FlatNote/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
@@ -380,10 +383,11 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
+				CODE_SIGN_ENTITLEMENTS = FlatNote/FlatNote.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = SMQ3T59TFL;
-				CODE_SIGN_ENTITLEMENTS = FlatNote/FlatNote.entitlements;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = FlatNote/Info.plist;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
