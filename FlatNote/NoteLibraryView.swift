@@ -76,10 +76,14 @@ struct NoteLibraryView: View {
             #if DEBUG
             .onAppear {
                 // UI-inspection hook: launch with SIMCTL_CHILD_FLATNOTE_OPEN_FIRST=1
-                // to jump straight into the first note for screenshots.
-                if ProcessInfo.processInfo.environment["FLATNOTE_OPEN_FIRST"] == "1",
-                   selectedNote == nil, let first = store.notes.first {
-                    selectedNote = first
+                // to jump straight into the first note for screenshots. Notes load
+                // asynchronously, so retry briefly until one is available.
+                if ProcessInfo.processInfo.environment["FLATNOTE_OPEN_FIRST"] == "1" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        if selectedNote == nil, let first = store.notes.first {
+                            selectedNote = first
+                        }
+                    }
                 }
             }
             #endif

@@ -120,11 +120,43 @@ html, body {
     position: absolute; top: -3px; left: 2px;
 }
 .line.active-line .task-cb-vis { display: none; }
+
+/* In-note find highlights */
+mark.search-hit { background: rgba(253, 217, 94, 0.45); color: inherit; border-radius: 2px; }
+mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
+
+/* Formatting toolbar (shown above the keyboard while editing) */
+#toolbar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: none;
+    justify-content: space-around; align-items: center;
+    height: 46px;
+    background: var(--code-bg);
+    border-top: 1px solid var(--hr-color);
+    z-index: 10;
+    -webkit-user-select: none; user-select: none;
+}
+#toolbar.visible { display: flex; }
+#toolbar button {
+    background: none; border: none; color: var(--fg);
+    font-size: 18px; font-family: var(--font-body);
+    padding: 8px 14px; min-width: 40px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+}
+#toolbar button:active { opacity: 0.4; }
 </style>
 </head>
 <body>
 <div id="placeholder"># Title</div>
 <div id="editor" contenteditable="true" spellcheck="true" autocapitalize="sentences" autocorrect="on"></div>
+<div id="toolbar">
+    <button data-fmt="bold" aria-label="Bold" style="font-weight:700">B</button>
+    <button data-fmt="italic" aria-label="Italic" style="font-style:italic">I</button>
+    <button data-fmt="heading" aria-label="Heading">H</button>
+    <button data-fmt="bullet" aria-label="Bullet list">&#8226;</button>
+    <button data-fmt="task" aria-label="Checkbox">&#9745;</button>
+    <button data-fmt="link" aria-label="Link">&#128279;</button>
+</div>
 <script src="render.js"></script>
 <script>
 (function() {
@@ -616,6 +648,193 @@ html, body {
     // line, a div whose textContent === the source line.
     function render() {
         editor.innerHTML = renderMarkdown(markdownSource);
+        if (searchQuery) highlightSearch();
+    }
+
+    // ========================================
+    // FORMATTING (invoked from the keyboard accessory bar)
+    // ========================================
+    function wrapInline(token) {
+        const sr = getSelectionRange();
+        if (!sr) return;
+        const lines = markdownSource.split('\n');
+        if (sr.collapsed) {
+            const line = lines[sr.startLine] || '';
+            lines[sr.startLine] = line.slice(0, sr.startOffset) + token + token + line.slice(sr.startOffset);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, sr.startOffset + token.length);
+        } else if (sr.startLine === sr.endLine) {
+            const line = lines[sr.startLine] || '';
+            const inner = line.slice(sr.startOffset, sr.endOffset);
+            lines[sr.startLine] = line.slice(0, sr.startOffset) + token + inner + token + line.slice(sr.endOffset);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, sr.endOffset + token.length * 2);
+        } else {
+            const s = lines[sr.startLine] || '';
+            lines[sr.startLine] = s.slice(0, sr.startOffset) + token + s.slice(sr.startOffset);
+            const e = lines[sr.endLine] || '';
+            lines[sr.endLine] = e.slice(0, sr.endOffset) + token + e.slice(sr.endOffset);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.endLine, sr.endOffset + token.length);
+        }
+        updatePlaceholder(); notifyChange();
+    }
+
+    function toggleLinePrefix(prefix) {
+        const sr = getSelectionRange();
+        if (!sr) return;
+        const lines = markdownSource.split('\n');
+        const idx = sr.startLine;
+        const line = lines[idx] || '';
+        if (line.startsWith(prefix)) {
+            lines[idx] = line.slice(prefix.length);
+            markdownSource = lines.join('\n');
+            render(); setCursor(idx, Math.max(0, sr.startOffset - prefix.length));
+        } else {
+            const stripped = line.replace(/^(#{1,6}\s+|>\s?|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+\.\s+)/, '');
+            const removed = line.length - stripped.length;
+            lines[idx] = prefix + stripped;
+            markdownSource = lines.join('\n');
+            render(); setCursor(idx, Math.max(prefix.length, sr.startOffset - removed + prefix.length));
+        }
+        updatePlaceholder(); notifyChange();
+    }
+
+    function insertLink() {
+        const sr = getSelectionRange();
+        if (!sr) return;
+        const lines = markdownSource.split('\n');
+        const line = lines[sr.startLine] || '';
+        if (!sr.collapsed && sr.startLine === sr.endLine) {
+            const inner = line.slice(sr.startOffset, sr.endOffset);
+            const rep = '[' + inner + '](url)';
+            lines[sr.startLine] = line.slice(0, sr.startOffset) + rep + line.slice(sr.endOffset);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, sr.startOffset + inner.length + 3);
+        } else {
+            const rep = '[title](url)';
+            lines[sr.startLine] = line.slice(0, sr.startOffset) + rep + line.slice(sr.startOffset);
+            markdownSource = lines.join('\n');
+            render(); setCursor(sr.startLine, sr.startOffset + 1);
+        }
+        updatePlaceholder(); notifyChange();
+    }
+
+    window.fmtBold = function() { wrapInline('**'); };
+    window.fmtItalic = function() { wrapInline('*'); };
+    window.fmtHeading = function() { toggleLinePrefix('# '); };
+    window.fmtBullet = function() { toggleLinePrefix('- '); };
+    window.fmtTask = function() { toggleLinePrefix('- [ ] '); };
+    window.fmtLink = function() { insertLink(); };
+
+    const fmtActions = {
+        bold: window.fmtBold, italic: window.fmtItalic, heading: window.fmtHeading,
+        bullet: window.fmtBullet, task: window.fmtTask, link: window.fmtLink
+    };
+
+    const toolbar = document.getElementById('toolbar');
+    toolbar.querySelectorAll('button').forEach(btn => {
+        // Keep the editor's selection/focus when a toolbar button is tapped.
+        btn.addEventListener('mousedown', e => e.preventDefault());
+        btn.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            const action = fmtActions[btn.dataset.fmt];
+            if (action) action();
+        });
+    });
+
+    function positionToolbar() {
+        const vv = window.visualViewport;
+        if (!vv) return;
+        const inset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+        toolbar.style.bottom = inset + 'px';
+    }
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', positionToolbar);
+        window.visualViewport.addEventListener('scroll', positionToolbar);
+    }
+    editor.addEventListener('focus', () => { toolbar.classList.add('visible'); positionToolbar(); });
+    editor.addEventListener('blur', () => {
+        setTimeout(() => {
+            if (document.activeElement !== editor) toolbar.classList.remove('visible');
+        }, 120);
+    });
+
+    // ========================================
+    // FIND IN NOTE
+    // ========================================
+    let searchQuery = '';
+    let searchMatches = [];
+    let searchIndex = -1;
+
+    window.setSearch = function(query) {
+        searchQuery = query || '';
+        render();
+        searchIndex = searchMatches.length ? 0 : -1;
+        markCurrent();
+        scrollToCurrent();
+        return searchMatches.length;
+    };
+    window.searchNext = function() {
+        if (!searchMatches.length) return 0;
+        searchIndex = (searchIndex + 1) % searchMatches.length;
+        markCurrent(); scrollToCurrent();
+        return searchIndex + 1;
+    };
+    window.searchPrev = function() {
+        if (!searchMatches.length) return 0;
+        searchIndex = (searchIndex - 1 + searchMatches.length) % searchMatches.length;
+        markCurrent(); scrollToCurrent();
+        return searchIndex + 1;
+    };
+    window.clearSearch = function() {
+        searchQuery = '';
+        searchMatches = [];
+        searchIndex = -1;
+        render();
+    };
+
+    function highlightSearch() {
+        searchMatches = [];
+        const q = searchQuery.toLowerCase();
+        if (!q) return;
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+        const nodes = [];
+        let node;
+        while ((node = walker.nextNode())) nodes.push(node);
+        nodes.forEach(textNode => {
+            const text = textNode.nodeValue;
+            const lower = text.toLowerCase();
+            if (lower.indexOf(q) === -1) return;
+            const frag = document.createDocumentFragment();
+            let last = 0, idx = lower.indexOf(q);
+            while (idx !== -1) {
+                if (idx > last) frag.appendChild(document.createTextNode(text.slice(last, idx)));
+                const mark = document.createElement('mark');
+                mark.className = 'search-hit';
+                mark.textContent = text.slice(idx, idx + q.length);
+                frag.appendChild(mark);
+                searchMatches.push(mark);
+                last = idx + q.length;
+                idx = lower.indexOf(q, last);
+            }
+            if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+            textNode.parentNode.replaceChild(frag, textNode);
+        });
+    }
+
+    function markCurrent() {
+        searchMatches.forEach((m, i) => {
+            if (i === searchIndex) m.classList.add('current');
+            else m.classList.remove('current');
+        });
+    }
+
+    function scrollToCurrent() {
+        if (searchIndex >= 0 && searchMatches[searchIndex]) {
+            searchMatches[searchIndex].scrollIntoView({ block: 'center' });
+        }
     }
 
     // ========================================

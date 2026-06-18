@@ -4,19 +4,140 @@ import WebKit
 import UIKit
 #endif
 
+/// Bridges the SwiftUI find bar to the editor's web view.
+@Observable
+final class EditorController {
+    weak var webView: WKWebView?
+    var matchCount = 0
+    var currentMatch = 0
+
+    func setSearch(_ query: String) {
+        guard let webView else { return }
+        let escaped = EditorCoordinator.escapeForJS(query)
+        webView.evaluateJavaScript("setSearch(`\(escaped)`)") { [weak self] result, _ in
+            let count = (result as? Int) ?? 0
+            self?.matchCount = count
+            self?.currentMatch = count > 0 ? 1 : 0
+        }
+    }
+
+    func next() {
+        webView?.evaluateJavaScript("searchNext()") { [weak self] result, _ in
+            if let index = result as? Int { self?.currentMatch = index }
+        }
+    }
+
+    func previous() {
+        webView?.evaluateJavaScript("searchPrev()") { [weak self] result, _ in
+            if let index = result as? Int { self?.currentMatch = index }
+        }
+    }
+
+    func clear() {
+        matchCount = 0
+        currentMatch = 0
+        webView?.evaluateJavaScript("clearSearch()")
+    }
+}
+
 struct EditorView: View {
     let store: NoteStore
     let note: NoteFile
 
+    @State private var controller = EditorController()
+    @State private var showingFind = false
+    @State private var findText = ""
+
     var body: some View {
-        EditorWebView(store: store, note: note)
+        EditorWebView(store: store, note: note, controller: controller)
             #if os(iOS)
             .ignoresSafeArea(.container, edges: .bottom)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .navigationTitle(note.displayName)
+            .toolbar {
+                #if os(iOS)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        toggleFind()
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .tint(.primary)
+                }
+                #endif
+            }
+            .safeAreaInset(edge: .top) {
+                if showingFind {
+                    findBar
+                }
+            }
+            #if DEBUG
+            .onAppear {
+                // Screenshot hook: launch with SIMCTL_CHILD_FLATNOTE_FIND=<term>
+                // to auto-open find and highlight matches.
+                if let term = ProcessInfo.processInfo.environment["FLATNOTE_FIND"], !term.isEmpty {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        showingFind = true
+                        findText = term
+                        controller.setSearch(term)
+                    }
+                }
+            }
+            #endif
+    }
+
+    private var findBar: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+            TextField("Find in note", text: $findText)
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onChange(of: findText) { _, value in
+                    controller.setSearch(value)
+                }
+
+            if controller.matchCount > 0 {
+                Text("\(controller.currentMatch)/\(controller.matchCount)")
+                    .font(.callout.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else if !findText.isEmpty {
+                Text("None")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            Button { controller.previous() } label: { Image(systemName: "chevron.up") }
+                .disabled(controller.matchCount == 0)
+            Button { controller.next() } label: { Image(systemName: "chevron.down") }
+                .disabled(controller.matchCount == 0)
+            Button { toggleFind() } label: { Image(systemName: "xmark.circle.fill") }
+                .foregroundStyle(.secondary)
+        }
+        .tint(.primary)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(.bar)
+    }
+
+    private func toggleFind() {
+        showingFind.toggle()
+        if !showingFind {
+            findText = ""
+            controller.clear()
+        }
     }
 }
+
+// MARK: - WKWebView subclass
+
+#if os(iOS)
+/// A web view that exposes a hook for an input accessory, reserved for future
+/// native keyboard chrome. The formatting toolbar itself lives in editor.html.
+final class EditorWKWebView: WKWebView {}
+#endif
 
 // MARK: - Platform-specific representable
 
@@ -24,9 +145,10 @@ struct EditorView: View {
 struct EditorWebView: UIViewRepresentable {
     let store: NoteStore
     let note: NoteFile
+    let controller: EditorController
 
     func makeCoordinator() -> EditorCoordinator {
-        EditorCoordinator(store: store, note: note)
+        EditorCoordinator(store: store, note: note, controller: controller)
     }
 
     func makeUIView(context: Context) -> WKWebView {
@@ -39,9 +161,10 @@ struct EditorWebView: UIViewRepresentable {
 struct EditorWebView: NSViewRepresentable {
     let store: NoteStore
     let note: NoteFile
+    let controller: EditorController
 
     func makeCoordinator() -> EditorCoordinator {
-        EditorCoordinator(store: store, note: note)
+        EditorCoordinator(store: store, note: note, controller: controller)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -57,6 +180,7 @@ struct EditorWebView: NSViewRepresentable {
 class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     let store: NoteStore
     let note: NoteFile
+    let controller: EditorController
     weak var webView: WKWebView?
     private var editorReady = false
     private var saveTimer: Timer?
@@ -64,9 +188,10 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
     /// The content last pushed into the editor, used to detect external edits.
     private var loadedContent: String?
 
-    init(store: NoteStore, note: NoteFile) {
+    init(store: NoteStore, note: NoteFile, controller: EditorController) {
         self.store = store
         self.note = note
+        self.controller = controller
         super.init()
         #if os(iOS)
         NotificationCenter.default.addObserver(
@@ -94,9 +219,14 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         userController.add(self, name: "flatnote")
         config.userContentController = userController
 
+        #if os(iOS)
+        let webView = EditorWKWebView(frame: .zero, configuration: config)
+        #else
         let webView = WKWebView(frame: .zero, configuration: config)
+        #endif
         webView.navigationDelegate = self
         self.webView = webView
+        controller.webView = webView
 
         #if os(iOS)
         webView.isOpaque = true
@@ -167,7 +297,7 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
 
     // MARK: Helpers
 
-    private static func escapeForJS(_ string: String) -> String {
+    static func escapeForJS(_ string: String) -> String {
         string
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "`", with: "\\`")
