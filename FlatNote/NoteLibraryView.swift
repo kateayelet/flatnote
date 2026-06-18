@@ -27,10 +27,20 @@ struct NoteLibraryView: View {
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                if filteredNotes.isEmpty {
+            Group {
+                if store.notes.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Notes", systemImage: "note.text")
+                    } description: {
+                        Text("Your notes will appear here. Create one to get started.")
+                    } actions: {
+                        Button("New Note") { showingNewNoteAlert = true }
+                            .buttonStyle(.borderedProminent)
+                    }
+                } else if filteredNotes.isEmpty {
                     ContentUnavailableView.search(text: searchText)
                 } else {
+                    ScrollView {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(filteredNotes) { note in
                             NoteCard(note: note, preview: store.preview(for: note))
@@ -56,6 +66,7 @@ struct NoteLibraryView: View {
                     .padding(.horizontal, 16)
                     .padding(.top, 8)
                     .padding(.bottom, 16)
+                    }
                 }
             }
             .navigationTitle("Notes")
@@ -250,10 +261,14 @@ struct NoteCard: View {
                 Text(preview)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(5)
+                    .lineLimit(4)
             }
 
             Spacer(minLength: 0)
+
+            Text(note.modifiedDate.formatted(date: .abbreviated, time: .omitted))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)

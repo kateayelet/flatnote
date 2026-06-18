@@ -239,9 +239,32 @@ class NoteStore {
     }
 
     func preview(for note: NoteFile) -> String {
-        let content = readContent(of: note).trimmingCharacters(in: .whitespacesAndNewlines)
+        let content = Self.strippedMarkdown(readContent(of: note))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         if content.count <= 120 { return content }
         return String(content.prefix(120)) + "..."
+    }
+
+    /// Removes markdown syntax so previews read as plain prose.
+    static func strippedMarkdown(_ text: String) -> String {
+        let leadingMarker = #"^\s{0,3}(#{1,6}\s+|>\s?|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+\.\s+)"#
+        let horizontalRule = #"^\s*([-*_]\s*){3,}$"#
+
+        let lines = text.components(separatedBy: .newlines).map { line -> String in
+            if line.range(of: horizontalRule, options: .regularExpression) != nil { return "" }
+            return line.replacingOccurrences(of: leadingMarker, with: "", options: .regularExpression)
+        }
+
+        var joined = lines.joined(separator: " ")
+        // Links: [text](url) -> text
+        joined = joined.replacingOccurrences(of: #"\[([^\]]*)\]\([^)]*\)"#, with: "$1", options: .regularExpression)
+        // Inline emphasis / code markers
+        for token in ["**", "__", "~~", "`", "*", "_"] {
+            joined = joined.replacingOccurrences(of: token, with: "")
+        }
+        // Collapse runs of whitespace
+        joined = joined.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+        return joined
     }
 
     func importFile(from url: URL) {

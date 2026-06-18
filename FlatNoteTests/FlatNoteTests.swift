@@ -277,6 +277,19 @@ struct NoteStoreTests {
         #expect((try? String(contentsOf: export, encoding: .utf8)) == "hello")
     }
 
+    @Test func strippedMarkdownRemovesSyntax() {
+        let md = "# Title\n\n- a **bold** item\n> quote\n[link](http://x)\n`code`"
+        let plain = NoteStore.strippedMarkdown(md)
+        #expect(!plain.contains("#"))
+        #expect(!plain.contains("**"))
+        #expect(!plain.contains(">"))
+        #expect(!plain.contains("`"))
+        #expect(plain.contains("Title"))
+        #expect(plain.contains("bold"))
+        #expect(plain.contains("link"))
+        #expect(!plain.contains("http"))
+    }
+
     @Test func exportAllProducesOnlyMarkdownURLs() {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
