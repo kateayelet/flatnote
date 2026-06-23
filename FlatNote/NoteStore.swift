@@ -60,7 +60,17 @@ class NoteStore {
     }
 
     private static func localDocumentsURL() -> URL {
-        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let fm = FileManager.default
+        #if os(macOS)
+        // On the Mac, .documentDirectory is the user's real ~/Documents. Keep
+        // notes in a visible FlatNote subfolder rather than scattering them there.
+        let base = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("FlatNote", isDirectory: true)
+        try? fm.createDirectory(at: base, withIntermediateDirectories: true)
+        return base
+        #else
+        return fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        #endif
     }
 
     // MARK: - Storage resolution (iCloud with local fallback)

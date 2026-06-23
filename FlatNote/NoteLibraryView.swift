@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import Combine
 
 struct NoteLibraryView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -92,11 +93,15 @@ struct NoteLibraryView: View {
                 }
             }
             #endif
+            #if os(iOS)
             .searchable(
                 text: $searchText,
                 placement: .navigationBarDrawer(displayMode: .always),
                 prompt: "Search Notes"
             )
+            #else
+            .searchable(text: $searchText, prompt: "Search Notes")
+            #endif
             .navigationDestination(item: $selectedNote) { note in
                 EditorView(store: store, note: note, isNew: note.id == newNoteID)
             }
@@ -105,21 +110,35 @@ struct NoteLibraryView: View {
                 if phase == .active { store.loadNotes() }
             }
             .onOpenURL { url in
-                // A markdown file was tapped in Files, AirDrop, a share sheet,
-                // etc. Open it (in place if it is already ours, otherwise as an
-                // imported copy) instead of just launching to the library.
+                // A markdown file was tapped in Files, Finder, AirDrop, a share
+                // sheet, etc. Open it (in place if it is already ours, otherwise
+                // as an imported copy) instead of just launching to the library.
                 if let note = store.openIncomingFile(url) {
                     newNoteID = nil
                     selectedNote = note
                 }
             }
+            #if os(macOS)
+            .onReceive(NotificationCenter.default.publisher(for: .flatNoteNewNote)) { _ in
+                createAndOpenNote()
+            }
+            #endif
             .toolbar {
+                #if os(iOS)
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
                     }
                     .tint(.primary)
                 }
+                #else
+                ToolbarItem(placement: .navigation) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .tint(.primary)
+                }
+                #endif
                 ToolbarItem(placement: .primaryAction) {
                     Button { createAndOpenNote() } label: {
                         Image(systemName: "square.and.pencil")

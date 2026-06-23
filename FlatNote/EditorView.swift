@@ -3,6 +3,9 @@ import WebKit
 #if canImport(UIKit)
 import UIKit
 #endif
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Bridges the SwiftUI find bar to the editor's web view.
 @Observable
@@ -68,6 +71,16 @@ struct EditorView: View {
                     }
                     .tint(.primary)
                 }
+                #else
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        toggleFind()
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                    }
+                    .keyboardShortcut("f", modifiers: .command)
+                    .help("Find in note")
+                }
                 #endif
             }
             .safeAreaInset(edge: .top) {
@@ -96,9 +109,11 @@ struct EditorView: View {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
             TextField("Find in note", text: $findText)
-                .textInputAutocapitalization(.never)
                 .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
                 .submitLabel(.search)
+                #endif
                 .onChange(of: findText) { _, value in
                     controller.setSearch(value)
                 }
@@ -215,6 +230,19 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
             self,
             selector: #selector(refreshFromDiskIfClean),
             name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
+        #elseif os(macOS)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(flushPendingSave),
+            name: NSApplication.willResignActiveNotification,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(refreshFromDiskIfClean),
+            name: NSApplication.didBecomeActiveNotification,
             object: nil
         )
         #endif
