@@ -55,7 +55,7 @@ App Store Connect → **My Apps → FlatNote**.
 - [ ] **Keywords** — from METADATA.md
 - [ ] **Support URL** — your page
 - [ ] **What's New** — from METADATA.md (use the matching platform's text)
-- [ ] **Copyright:** 2026 Kate Benediktsson
+- [ ] **Copyright:** 2026 Kate Ayelet
 
 ### Screenshots (drag in from appstore/screenshots/)
 

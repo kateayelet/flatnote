@@ -15,7 +15,7 @@ per-version "Distribution" pages (one for iOS, one for macOS).
 - **Primary category:** Productivity
 - **Secondary category:** Utilities
 - **Age rating:** 4+ (no objectionable content)
-- **Copyright:** 2026 Kate Benediktsson
+- **Copyright:** 2026 Kate Ayelet
 - **Bundle ID:** com.aftrveil.flatnote
 
 ## URLs (you must provide these)
