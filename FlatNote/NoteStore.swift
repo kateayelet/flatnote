@@ -310,21 +310,78 @@ class NoteStore {
         return joined
     }
 
-    func importFile(from url: URL) {
-        guard url.startAccessingSecurityScopedResource() else {
-            lastError = "Could not access \"\(url.lastPathComponent)\"."
-            return
+    /// Opens a file the system handed us (tapped in the Files app, AirDrop, a
+    /// share sheet, etc). If the file already lives in our storage it is opened
+    /// in place; anything else is imported as a copy first. Returns the note to
+    /// open, or nil if it could not be read.
+    func openIncomingFile(_ url: URL) -> NoteFile? {
+        let resolved = Self.resolveICloudPlaceholder(url).standardizedFileURL
+        guard ["md", "markdown", "txt"].contains(resolved.pathExtension.lowercased()) else {
+            lastError = "\"\(resolved.lastPathComponent)\" is not a note FlatNote can open."
+            return nil
         }
-        defer { url.stopAccessingSecurityScopedResource() }
+
+        // Already one of our notes (opened in place from the FlatNote folder)?
+        if let existing = note(matching: resolved) { return existing }
+
+        // Sitting in our storage but not yet loaded? Pick it up and retry.
+        if resolved.deletingLastPathComponent().standardizedFileURL == documentsURL.standardizedFileURL {
+            loadNotes()
+            if let existing = note(matching: resolved) { return existing }
+        }
+
+        // Otherwise it lives outside the app: import a copy and open that.
+        return importFile(from: url)
+    }
+
+    private func note(matching url: URL) -> NoteFile? {
+        notes.first { $0.url.standardizedFileURL == url }
+    }
+
+    /// When the system opens an external file it first drops a copy in our
+    /// Documents/Inbox. Once we have imported that copy, delete the original so
+    /// stale Inbox files do not pile up.
+    private func removeInboxLeftover(_ url: URL) {
+        let inbox = Self.localDocumentsURL()
+            .appendingPathComponent("Inbox", isDirectory: true)
+            .standardizedFileURL
+        guard url.standardizedFileURL.deletingLastPathComponent() == inbox else { return }
+        try? FileManager.default.removeItem(at: url)
+    }
+
+    @discardableResult
+    func importFile(from url: URL) -> NoteFile? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
 
         do {
-            let content = try String(contentsOf: url, encoding: .utf8)
+            let content = try coordinatedReadThrowing(url)
             let dest = uniqueDestination(for: url.lastPathComponent)
             try coordinatedWrite(content, to: dest)
-            loadNotes()
+            removeInboxLeftover(url)
+            let attrs = try? FileManager.default.attributesOfItem(atPath: dest.path)
+            let modified = attrs?[.modificationDate] as? Date ?? Date()
+            let note = NoteFile(id: dest, name: dest.lastPathComponent, modifiedDate: modified)
+            notes.insert(note, at: 0)
+            return note
         } catch {
-            lastError = "Could not import \"\(url.lastPathComponent)\". \(error.localizedDescription)"
+            lastError = "Could not open \"\(url.lastPathComponent)\". \(error.localizedDescription)"
+            return nil
         }
+    }
+
+    /// Coordinated read that surfaces failures, for importing external files.
+    private func coordinatedReadThrowing(_ url: URL) throws -> String {
+        var text = ""
+        var readError: Error?
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: url, options: [], error: &coordError) { resolved in
+            do { text = try String(contentsOf: resolved, encoding: .utf8) }
+            catch { readError = error }
+        }
+        if let readError { throw readError }
+        if let coordError { throw coordError }
+        return text
     }
 
     // MARK: - Markdown export

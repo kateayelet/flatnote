@@ -104,6 +104,15 @@ struct NoteLibraryView: View {
                 // Pick up notes added or removed outside the app.
                 if phase == .active { store.loadNotes() }
             }
+            .onOpenURL { url in
+                // A markdown file was tapped in Files, AirDrop, a share sheet,
+                // etc. Open it (in place if it is already ours, otherwise as an
+                // imported copy) instead of just launching to the library.
+                if let note = store.openIncomingFile(url) {
+                    newNoteID = nil
+                    selectedNote = note
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Button { showingSettings = true } label: {
