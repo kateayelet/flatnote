@@ -42,4 +42,5 @@ date.
 
 ## Contact
 
-Questions about this policy: [add your contact email here].
+Questions about this policy: kate@aftrveil.com, or open an issue at
+https://github.com/kateayelet/flatnote/issues.
