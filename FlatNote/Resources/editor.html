@@ -866,8 +866,11 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     }
     document.addEventListener('selectionchange', updateActiveLine);
 
-    // Tap a rendered checkbox to toggle it.
-    editor.addEventListener('click', (e) => {
+    // Tap or click a rendered checkbox to toggle it. Handle pointerdown (fires
+    // for both touch and mouse) and preventDefault so the caret is never placed
+    // on the line. Otherwise the click activates the line, which hides the
+    // visual box and reveals the raw "- [ ]" markdown instead of toggling.
+    editor.addEventListener('pointerdown', (e) => {
         const cb = e.target.closest('.task-cb-vis');
         if (cb && cb.dataset.line !== undefined) {
             e.preventDefault();
