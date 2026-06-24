@@ -6,6 +6,7 @@ DerivedData/
 build/
 *.pbxuser
 *.perspectivev3
+**/xcshareddata/WorkspaceSettings.xcsettings
 *.mode1v3
 *.mode2v3
 !default.pbxuser
