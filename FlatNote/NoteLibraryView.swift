@@ -19,6 +19,16 @@ struct NoteLibraryView: View {
         }
     }
 
+    /// Parses `flatnote://open?path=<abs path>` and opens the companion note.
+    private func openPairedNote(from url: URL) -> NoteFile? {
+        guard url.host == "open",
+              let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                  .queryItems?.first(where: { $0.name == "path" })?.value else {
+            return nil
+        }
+        return store.openPairedFile(path: path)
+    }
+
     private var filteredNotes: [NoteFile] {
         if searchText.isEmpty { return store.notes }
         return store.notes.filter {
@@ -110,6 +120,15 @@ struct NoteLibraryView: View {
                 if phase == .active { store.loadNotes() }
             }
             .onOpenURL { url in
+                // FlatFile's paperclip handoff: flatnote://open?path=<abs path>.
+                // Open the companion note in place when it lives in our folder.
+                if url.scheme == "flatnote" {
+                    if let note = openPairedNote(from: url) {
+                        newNoteID = nil
+                        selectedNote = note
+                    }
+                    return
+                }
                 // A markdown file was tapped in Files, Finder, AirDrop, a share
                 // sheet, etc. Open it (in place if it is already ours, otherwise
                 // as an imported copy) instead of just launching to the library.

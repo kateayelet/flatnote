@@ -348,6 +348,22 @@ class NoteStore {
         notes.first { $0.url.standardizedFileURL == url }
     }
 
+    /// Opens a companion note another app (FlatFile) requested by absolute path,
+    /// e.g. via `flatnote://open?path=...`. When a note of that name already
+    /// lives in our storage — the paired-folder workflow, where the `.md` sits in
+    /// the FlatNote folder next to its `.csv` — we open that note IN PLACE so
+    /// edits round-trip to the same file. Otherwise we fall back to the normal
+    /// incoming-file handling (open-in-place if it is ours, else import a copy).
+    func openPairedFile(path: String) -> NoteFile? {
+        let url = URL(fileURLWithPath: path).standardizedFileURL
+        let name = url.lastPathComponent
+        loadNotes()
+        if let existing = notes.first(where: { $0.url.lastPathComponent == name }) {
+            return existing
+        }
+        return openIncomingFile(url)
+    }
+
     /// When the system opens an external file it first drops a copy in our
     /// Documents/Inbox. Once we have imported that copy, delete the original so
     /// stale Inbox files do not pile up.
