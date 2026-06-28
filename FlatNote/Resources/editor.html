@@ -166,9 +166,22 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     let isComposing = false;
     let enterHandled = false;
 
+    // Undo/redo: the editor intercepts every input and re-renders from
+    // markdownSource, so WebKit's native contenteditable undo stack is always
+    // empty. We keep our own document snapshots instead.
+    let undoStack = [];
+    let redoStack = [];
+    let lastEditType = null;
+    let lastEditAt = 0;
+
     // --- Expose to Swift ---
     window.setContent = function(md) {
         markdownSource = md || '';
+        // A freshly loaded document starts with an empty history; undo must
+        // never cross into a different note or an external on-disk reload.
+        undoStack = [];
+        redoStack = [];
+        lastEditType = null;
         render();
         updatePlaceholder();
         notifyChange();
@@ -315,6 +328,19 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     // keydown for Enter and Backspace (most reliable on iOS)
     let backspaceHandled = false;
     editor.addEventListener('keydown', (e) => {
+        // Undo/redo via hardware keyboard (iOS) and as a macOS fallback. On
+        // macOS the Edit menu's Cmd+Z key equivalent usually fires first and
+        // routes through the native command into window.undo()/redo().
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+            e.preventDefault();
+            if (e.shiftKey) window.redo(); else window.undo();
+            return;
+        }
+        if ((e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
+            e.preventDefault();
+            window.redo();
+            return;
+        }
         if (e.key === 'Enter' || e.keyCode === 13) {
             e.preventDefault();
             enterHandled = true;
@@ -330,6 +356,9 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     editor.addEventListener('beforeinput', (e) => {
         if (isComposing) return;
         const t = e.inputType;
+
+        if (t === 'historyUndo') { e.preventDefault(); window.undo(); return; }
+        if (t === 'historyRedo') { e.preventDefault(); window.redo(); return; }
 
         if (t === 'insertParagraph' || t === 'insertLineBreak') {
             e.preventDefault();
@@ -388,6 +417,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
                 const startOff = getDOMOffset(r.startContainer, r.startOffset);
                 const endLine = getLineIndex(r.endContainer);
                 const endOff = getDOMOffset(r.endContainer, r.endOffset);
+                pushUndo('replace');
                 deleteRangeAndInsert(startLine, startOff, endLine, endOff, replacement);
             }
             return;
@@ -415,6 +445,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function insertTextAtCursor(text) {
         const sr = getSelectionRange();
         if (!sr) return;
+        pushUndo('insertText');
         if (!sr.collapsed) {
             deleteRangeAndInsert(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset, text);
             return;
@@ -432,6 +463,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function handleEnter() {
         const sr = getSelectionRange();
         if (!sr) return;
+        pushUndo('enter');
 
         // Delete selection first if any
         if (!sr.collapsed) {
@@ -479,6 +511,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function handleBackspace() {
         const sr = getSelectionRange();
         if (!sr) return;
+        pushUndo('delete');
 
         if (!sr.collapsed) {
             deleteRangeRaw(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset);
@@ -507,6 +540,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function handleDelete() {
         const sr = getSelectionRange();
         if (!sr) return;
+        pushUndo('delete');
 
         if (!sr.collapsed) {
             deleteRangeRaw(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset);
@@ -538,6 +572,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
 
         const lines = markdownSource.split('\n');
         const line = lines[sr.startLine] || '';
+        pushUndo('delete');
 
         if (direction === 'backward') {
             if (sr.startOffset === 0) { handleBackspace(); return; }
@@ -562,6 +597,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function handlePaste(text) {
         const sr = getSelectionRange();
         if (!sr) return;
+        pushUndo('paste');
         if (!sr.collapsed) {
             deleteRangeRaw(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset);
         }
@@ -617,6 +653,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         const domText = lineDiv.textContent;
         const lines = markdownSource.split('\n');
         if (lines[pos.line] !== domText) {
+            pushUndo('input');
             lines[pos.line] = domText;
             markdownSource = lines.join('\n');
             render(); setCursor(pos.line, pos.offset);
@@ -630,6 +667,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         const lines = [];
         divs.forEach(div => { lines.push(div.textContent); });
         if (lines.length > 0) {
+            pushUndo('input');
             markdownSource = lines.join('\n');
             render();
             if (pos) setCursor(pos.line, pos.offset);
@@ -657,6 +695,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function wrapInline(token) {
         const sr = getSelectionRange();
         if (!sr) return;
+        pushUndo('format');
         const lines = markdownSource.split('\n');
         if (sr.collapsed) {
             const line = lines[sr.startLine] || '';
@@ -683,6 +722,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function toggleLinePrefix(prefix) {
         const sr = getSelectionRange();
         if (!sr) return;
+        pushUndo('format');
         const lines = markdownSource.split('\n');
         const idx = sr.startLine;
         const line = lines[idx] || '';
@@ -703,6 +743,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function insertLink() {
         const sr = getSelectionRange();
         if (!sr) return;
+        pushUndo('format');
         const lines = markdownSource.split('\n');
         const line = lines[sr.startLine] || '';
         if (!sr.collapsed && sr.startLine === sr.endLine) {
@@ -838,11 +879,62 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     }
 
     // ========================================
+    // UNDO / REDO
+    // ========================================
+    // Every mutating op calls pushUndo() *before* changing markdownSource,
+    // snapshotting the pre-edit document and caret. Rapid same-kind edits
+    // (typing, deleting) coalesce into a single step so undo works by word/pause
+    // rather than per keystroke.
+    function pushUndo(type) {
+        const now = (window.performance && performance.now) ? performance.now() : 0;
+        if ((type === 'insertText' || type === 'delete') &&
+            type === lastEditType && (now - lastEditAt) < 700) {
+            lastEditAt = now;
+            return;
+        }
+        lastEditType = type;
+        lastEditAt = now;
+        const snap = captureState();
+        // Skip no-op edits and double-pushes (a delegating op may push twice).
+        if (undoStack.length && undoStack[undoStack.length - 1].md === snap.md) return;
+        undoStack.push(snap);
+        if (undoStack.length > 1000) undoStack.shift();
+        redoStack.length = 0;
+    }
+
+    function captureState() {
+        const pos = getCursorPos();
+        return { md: markdownSource, line: pos ? pos.line : 0, offset: pos ? pos.offset : 0 };
+    }
+
+    function restoreState(s) {
+        markdownSource = s.md;
+        render();
+        setCursor(s.line, s.offset);
+        updatePlaceholder();
+        notifyChange();
+        lastEditType = null;
+        lastEditAt = 0;
+    }
+
+    window.undo = function() {
+        if (!undoStack.length) return;
+        redoStack.push(captureState());
+        restoreState(undoStack.pop());
+    };
+    window.redo = function() {
+        if (!redoStack.length) return;
+        undoStack.push(captureState());
+        restoreState(redoStack.pop());
+    };
+
+    // ========================================
     // TASK TOGGLE
     // ========================================
     window.toggleTask = function(lineIdx) {
         const lines = markdownSource.split('\n');
         if (lineIdx < lines.length) {
+            pushUndo('task');
             if (/\[ \]/.test(lines[lineIdx])) {
                 lines[lineIdx] = lines[lineIdx].replace('[ ]', '[x]');
             } else {
@@ -866,13 +958,22 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     }
     document.addEventListener('selectionchange', updateActiveLine);
 
-    // Tap or click a rendered checkbox to toggle it. Handle pointerdown (fires
-    // for both touch and mouse) and preventDefault so the caret is never placed
-    // on the line. Otherwise the click activates the line, which hides the
-    // visual box and reveals the raw "- [ ]" markdown instead of toggling.
-    editor.addEventListener('pointerdown', (e) => {
+    // Tap or click a rendered checkbox to toggle it. pointerdown (fires for both
+    // touch and mouse) performs the toggle. On macOS the caret is placed on
+    // mousedown, and preventing pointerdown's default does not stop it -- so we
+    // must also preventDefault on mousedown. Otherwise the click activates the
+    // line, which hides the visual box and reveals the raw "- [ ]" markdown
+    // instead of toggling.
+    function checkboxFor(e) {
         const cb = e.target.closest('.task-cb-vis');
-        if (cb && cb.dataset.line !== undefined) {
+        return (cb && cb.dataset.line !== undefined) ? cb : null;
+    }
+    editor.addEventListener('mousedown', (e) => {
+        if (checkboxFor(e)) e.preventDefault();
+    });
+    editor.addEventListener('pointerdown', (e) => {
+        const cb = checkboxFor(e);
+        if (cb) {
             e.preventDefault();
             window.toggleTask(parseInt(cb.dataset.line));
         }
