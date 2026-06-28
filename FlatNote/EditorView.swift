@@ -199,6 +199,12 @@ struct EditorWebView: NSViewRepresentable {
 // MARK: - Shared coordinator
 
 class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
+    /// The coordinator whose editor is currently on screen, so the macOS
+    /// Edit > Undo / Redo menu commands can reach the active web view. The
+    /// editor manages its own undo stack in JavaScript (it intercepts all
+    /// input), so the menu has to forward into it.
+    static weak var focused: EditorCoordinator?
+
     let store: NoteStore
     var note: NoteFile
     let controller: EditorController
@@ -249,8 +255,15 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
     }
 
     deinit {
+        if EditorCoordinator.focused === self { EditorCoordinator.focused = nil }
         flushPendingSave()
     }
+
+    // MARK: Undo / Redo
+
+    /// Forwarded from the macOS Edit menu. The web editor owns the undo stack.
+    func undo() { webView?.evaluateJavaScript("undo()") }
+    func redo() { webView?.evaluateJavaScript("redo()") }
 
     func createWebView() -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -287,6 +300,7 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         editorReady = true
+        EditorCoordinator.focused = self
         let content = store.readContent(of: note)
         loadedContent = content
         currentContent = content
@@ -331,6 +345,7 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
     func closeNote() {
         guard !finalized else { return }
         finalized = true
+        if EditorCoordinator.focused === self { EditorCoordinator.focused = nil }
         flushPendingSave()
         guard isNew else { return }
         if currentContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
