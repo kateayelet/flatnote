@@ -115,6 +115,44 @@ struct NoteStoreTests {
         #expect(!store.notes.contains(where: { $0.id == note.id }))
     }
 
+    // MARK: Welcome note (AFTR-419 / AFTR-420)
+
+    @Test func restoreWelcomeNoteCreatesIt() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        let note = store.restoreWelcomeNote()
+        #expect(note != nil)
+        #expect(note?.displayName == "Welcome to FlatNote")
+        #expect(store.readContent(of: note!) == NoteStore.welcomeMarkdown)
+    }
+
+    @Test func restoreWelcomeNoteKeepsExistingCopy() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        let original = tmp.appendingPathComponent("Welcome to FlatNote.md")
+        try! "my edited welcome".write(to: original, atomically: true, encoding: .utf8)
+
+        let restored = store.restoreWelcomeNote()
+        #expect(restored != nil)
+        // The user's edited original is untouched...
+        #expect((try? String(contentsOf: original, encoding: .utf8)) == "my edited welcome")
+        // ...and the restored copy is a distinct, uniquely named file.
+        #expect(restored?.url != original)
+        #expect(store.readContent(of: restored!) == NoteStore.welcomeMarkdown)
+    }
+
+    @Test func welcomeMarkdownShowsLiveExamples() {
+        // AFTR-420: the guide must pair the markdown with its rendered result
+        // rather than describe syntax in prose, and frame markdown around freedom.
+        let md = NoteStore.welcomeMarkdown
+        #expect(md.contains("`*italic*` becomes *italic*"))
+        #expect(md.contains("`**bold**` becomes **bold**"))
+        #expect(md.contains("## Why markdown"))
+        #expect(!md.contains("two asterisks"))   // old prose phrasing is gone
+    }
+
     @Test func previewTruncatesLongContent() {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
@@ -444,6 +482,16 @@ struct MarkdownRenderTests {
         #expect(html.contains("md-bold"))
         #expect(html.contains(">bold<"))
         #expect(!html.contains("md-italic"))   // single-pass tokenizer guard
+    }
+
+    @Test func welcomeExampleRendersBothCodeAndResult() throws {
+        // The welcome guide's pattern: `*italic*` becomes *italic* must render
+        // the literal markdown as code (asterisks visible) AND the styled result.
+        let render = try makeRenderer()
+        let html = render("`*italic*` becomes *italic*")
+        #expect(html.contains("md-code"))      // literal markdown, shown as code
+        #expect(html.contains(">*italic*<"))   // asterisks stay visible in the code span
+        #expect(html.contains("md-italic"))    // the rendered result
     }
 
     @Test func htmlIsEscaped() throws {
