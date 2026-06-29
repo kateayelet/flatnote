@@ -19,6 +19,17 @@ struct NoteLibraryView: View {
         }
     }
 
+    private func restoreWelcomeNote() {
+        guard let note = store.restoreWelcomeNote() else { return }
+        // Close Settings first, then open the restored note so the sheet
+        // dismissal and the navigation push do not race.
+        showingSettings = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+            newNoteID = nil
+            selectedNote = note
+        }
+    }
+
     /// Parses `flatnote://open?path=<abs path>` and opens the companion note.
     private func openPairedNote(from url: URL) -> NoteFile? {
         guard url.host == "open",
@@ -189,7 +200,8 @@ struct NoteLibraryView: View {
                 SettingsView(
                     noteCount: store.notes.count,
                     noteURLs: store.markdownExportURLs(),
-                    iCloudAvailable: store.iCloudAvailable
+                    iCloudAvailable: store.iCloudAvailable,
+                    onRestoreWelcome: restoreWelcomeNote
                 )
             }
             .alert(
@@ -214,6 +226,7 @@ struct SettingsView: View {
     let noteCount: Int
     let noteURLs: [URL]
     let iCloudAvailable: Bool
+    let onRestoreWelcome: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     private var appVersion: String {
@@ -246,6 +259,18 @@ struct SettingsView: View {
                     } footer: {
                         Text("Share or save every note as .md files. Your notes are also available in the Files app under FlatNote.")
                     }
+                }
+
+                Section {
+                    Button {
+                        onRestoreWelcome()
+                    } label: {
+                        Label("Restore Welcome Note", systemImage: "arrow.counterclockwise")
+                    }
+                } header: {
+                    Text("Welcome Note")
+                } footer: {
+                    Text("Brings back the \"Welcome to FlatNote\" guide. If one already exists, it is added as a new copy so your edits are kept.")
                 }
 
                 Section {
