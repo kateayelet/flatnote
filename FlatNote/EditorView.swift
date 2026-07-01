@@ -156,6 +156,14 @@ struct EditorView: View {
 /// A web view that exposes a hook for an input accessory, reserved for future
 /// native keyboard chrome. The formatting toolbar itself lives in editor.html.
 final class EditorWKWebView: WKWebView {}
+#else
+/// On macOS a WKWebView embedded in an NSViewRepresentable does not become the
+/// window's first responder on its own, so the contenteditable editor never
+/// receives keystrokes. Advertising that it accepts first responder lets the
+/// coordinator hand it focus once it is in a window.
+final class EditorWKWebView: WKWebView {
+    override var acceptsFirstResponder: Bool { true }
+}
 #endif
 
 // MARK: - Platform-specific representable
@@ -258,11 +266,7 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         userController.add(self, name: "flatnote")
         config.userContentController = userController
 
-        #if os(iOS)
         let webView = EditorWKWebView(frame: .zero, configuration: config)
-        #else
-        let webView = WKWebView(frame: .zero, configuration: config)
-        #endif
         webView.navigationDelegate = self
         self.webView = webView
         controller.webView = webView
@@ -285,6 +289,12 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
 
     // MARK: WKNavigationDelegate
 
+    /// If the web content process is ever jettisoned, reload so the editor does
+    /// not silently go blank.
+    func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        webView.reload()
+    }
+
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         editorReady = true
         let content = store.readContent(of: note)
@@ -292,6 +302,15 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         currentContent = content
         let escaped = Self.escapeForJS(content)
         webView.evaluateJavaScript("setContent(`\(escaped)`)")
+        #if os(macOS)
+        // The web view has to be the window's first responder before its
+        // contenteditable can take keystrokes; SwiftUI does not do this for us.
+        // Do it once the view is in a window, then focus the editor itself.
+        DispatchQueue.main.async {
+            webView.window?.makeFirstResponder(webView)
+            webView.evaluateJavaScript("focusEditor()")
+        }
+        #endif
     }
 
     /// When the app returns to the foreground, pick up edits made to this file

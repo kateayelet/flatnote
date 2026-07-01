@@ -6,6 +6,11 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- WKWebView's Web Content process will not launch in a sandboxed macOS
+	     app without the outgoing-network entitlement; without it the editor
+	     web view stays blank and cannot be typed into. -->
+	<key>com.apple.security.network.client</key>
+	<true/>
 	<key>com.apple.developer.icloud-container-identifiers</key>
 	<array>
 		<string>iCloud.com.aftrveil.flatnote</string>
