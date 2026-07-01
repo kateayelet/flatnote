@@ -175,14 +175,60 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     };
     window.getContent = function() { return markdownSource; };
 
+    // Move the caret into the editor and focus it. On macOS the host makes the
+    // web view first responder after loading and then calls this so the note is
+    // immediately typable; without it the contenteditable never takes keystrokes.
+    window.focusEditor = function() {
+        editor.focus();
+        const sel = window.getSelection();
+        if (sel && editor.lastChild) {
+            const range = document.createRange();
+            range.selectNodeContents(editor);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+        }
+    };
+
     function updatePlaceholder() {
         placeholder.style.display = markdownSource.trim() === '' ? 'block' : 'none';
     }
 
-    function notifyChange() {
+    function postToHost(msg) {
         if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.flatnote) {
-            window.webkit.messageHandlers.flatnote.postMessage({ action: 'contentChanged', markdown: markdownSource });
+            window.webkit.messageHandlers.flatnote.postMessage(msg);
         }
+    }
+
+    function notifyChange() {
+        postToHost({ action: 'contentChanged', markdown: markdownSource });
+        notifyOutline();
+    }
+
+    // Gather the headings, in document order, for the outline panel. Lines
+    // inside code fences render as code blocks (not .line-hN), so they are
+    // naturally excluded.
+    function buildOutline() {
+        const items = [];
+        editor.querySelectorAll('.line-h1, .line-h2, .line-h3, .line-h4, .line-h5, .line-h6')
+            .forEach(div => {
+                const m = div.className.match(/line-h([1-6])/);
+                items.push({
+                    level: m ? parseInt(m[1]) : 1,
+                    line: parseInt(div.dataset.line),
+                    text: div.textContent.replace(/^#{1,6}\s+/, '').trim()
+                });
+            });
+        return items;
+    }
+
+    let lastOutlineJSON = '';
+    function notifyOutline() {
+        const items = buildOutline();
+        const json = JSON.stringify(items);
+        if (json === lastOutlineJSON) return;   // skip when headings are unchanged
+        lastOutlineJSON = json;
+        postToHost({ action: 'outline', items: items });
     }
 
     // ========================================
@@ -893,6 +939,42 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         }, 50);
     }
     editor.addEventListener('focus', scrollCursorIntoView);
+
+    // ========================================
+    // OUTLINE SCROLL SYNC
+    // ========================================
+    // Smoothly jump to a heading when its outline row is clicked.
+    window.scrollToLine = function(n) {
+        const div = editor.querySelector('[data-line="' + n + '"]');
+        if (!div) return;
+        const top = window.scrollY + div.getBoundingClientRect().top - 8;
+        window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    };
+
+    // Report the heading currently at the top of the viewport so the outline can
+    // highlight the section being read. Throttled to one report per frame.
+    let lastReportedHeading = null;
+    function topVisibleHeadingLine() {
+        const heads = editor.querySelectorAll('.line-h1, .line-h2, .line-h3, .line-h4, .line-h5, .line-h6');
+        let current = -1;
+        for (const div of heads) {
+            if (div.getBoundingClientRect().top <= 80) current = parseInt(div.dataset.line);
+            else break;
+        }
+        return current;
+    }
+    function reportHeading() {
+        const line = topVisibleHeadingLine();
+        if (line === lastReportedHeading) return;
+        lastReportedHeading = line;
+        postToHost({ action: 'scrollLine', line: line });
+    }
+    let scrollPending = false;
+    window.addEventListener('scroll', () => {
+        if (scrollPending) return;
+        scrollPending = true;
+        requestAnimationFrame(() => { scrollPending = false; reportHeading(); });
+    }, { passive: true });
 })();
 </script>
 </body>
