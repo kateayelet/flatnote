@@ -93,8 +93,14 @@ class NoteStore {
                 self.storageURL = resolved
                 self.iCloudAvailable = iCloud
                 self.loadNotes()
-                if self.notes.isEmpty {
-                    self.createWelcomeNote()
+                // Seed the welcome note only on the very first launch. After
+                // that the user's choice to delete it is respected; they can
+                // restore it deliberately from Settings.
+                if !self.hasSeededWelcome {
+                    if self.notes.isEmpty {
+                        self.createWelcomeNote()
+                    }
+                    self.hasSeededWelcome = true
                 }
             }
         }
@@ -462,50 +468,99 @@ class NoteStore {
         return candidate
     }
 
+    /// The single source for the welcome note's contents, used both for the
+    /// first-launch seed and for the "Restore Welcome Note" action so the two
+    /// can never drift. Each line shows the markdown to type and what it becomes.
+    static let welcomeMarkdown = """
+    # Welcome to FlatNote
+
+    FlatNote formats your writing as you type. Type the plain markdown on the left, and it becomes the styled text on the right.
+
+    ## Italic and bold
+
+    `*italic*` becomes *italic*
+
+    `**bold**` becomes **bold**
+
+    `***bold italic***` becomes ***bold italic***
+
+    `~~strikethrough~~` becomes ~~strikethrough~~
+
+    Wrap a word in backticks for `inline code`.
+
+    ## Headings
+
+    Start a line with `#` for a heading. Add more hashes for smaller ones:
+
+    ### Like this third-level heading
+
+    ## Lists
+
+    Start a line with `-` for a bullet:
+
+    - A bullet
+    - Another bullet
+
+    ## Checklists
+
+    Add `[ ]` after the dash for a checkbox. Tap or click the box to toggle it:
+
+    - [ ] Something to do
+    - [x] Something done
+
+    ## Links
+
+    `[words](https://example.com)` becomes [words](https://example.com)
+
+    ## Quotes
+
+    Start a line with `>` for a quote:
+
+    > Like this
+
+    ## Why markdown
+
+    Your notes are plain text. Every one is a .md file you can open in any editor, on any device, today or in twenty years.
+
+    That is the point. Some formats lock your words inside a single program. Miss an update, switch devices, or let a subscription lapse, and your own writing can become hard to reach. Plain text never does. It belongs to you, not to an app.
+
+    FlatNote just makes plain text pleasant to write. The freedom was always yours.
+
+    ---
+
+    Your notes live as plain .md files in your own Files, under FlatNote. Start a new note whenever you are ready.
+
+    Deleted this note by accident? You can bring it back anytime from Settings.
+    """
+
+    /// Persisted so the welcome note is seeded only once, ever. After that,
+    /// deleting it stays deleted unless the user restores it on purpose.
+    private static let didSeedWelcomeKey = "FlatNoteDidSeedWelcome"
+    private var hasSeededWelcome: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.didSeedWelcomeKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.didSeedWelcomeKey) }
+    }
+
     private func createWelcomeNote() {
-        let content = """
-        # Welcome to FlatNote
-
-        FlatNote formats your writing as you type. Here is how, with the symbol to type on the left and what it becomes below it.
-
-        ## Headings
-
-        Start a line with `#` for a big heading, or `##` for a smaller one:
-
-        ## A smaller heading
-
-        ## Bold and italic
-
-        Type `**two asterisks**` around words for **two asterisks** bold, or `*one asterisk*` for *one asterisk* italic. Type `~~tildes~~` for ~~strikethrough~~.
-
-        ## Lists
-
-        Start a line with `-` for a bullet:
-
-        - A bullet
-        - Another bullet
-
-        Add `[ ]` after the dash for a checkbox you can tap:
-
-        - [ ] Something to do
-        - [x] Something done
-
-        ## Links
-
-        Type `[words](https://example.com)` to make a [link](https://example.com).
-
-        ## Quotes
-
-        Start a line with `>` for a quote:
-
-        > Like this
-
-        ---
-
-        That is everything. Your notes are saved as plain .md files that belong to you. Tap the compose button to start writing.
-        """
         let url = documentsURL.appendingPathComponent("Welcome to FlatNote.md")
-        try? coordinatedWrite(content, to: url)
+        try? coordinatedWrite(Self.welcomeMarkdown, to: url)
         loadNotes()
+    }
+
+    /// Recreates the welcome note on demand. If one already exists, its name is
+    /// uniqued so the user's edited copy is never overwritten. Returns the new
+    /// note so the caller can open it.
+    @discardableResult
+    func restoreWelcomeNote() -> NoteFile? {
+        let url = uniqueDestination(for: "Welcome to FlatNote.md")
+        do {
+            try coordinatedWrite(Self.welcomeMarkdown, to: url)
+        } catch {
+            lastError = "Could not restore the welcome note."
+            return nil
+        }
+        hasSeededWelcome = true
+        loadNotes()
+        return notes.first(where: { $0.url == url })
     }
 }
