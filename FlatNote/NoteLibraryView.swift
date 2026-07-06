@@ -1,6 +1,9 @@
 import SwiftUI
 import UniformTypeIdentifiers
 import Combine
+#if os(macOS)
+import AppKit
+#endif
 
 struct NoteLibraryView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -11,12 +14,51 @@ struct NoteLibraryView: View {
     @State private var showingSettings = false
     @State private var renamingNote: NoteFile?
     @State private var renameText = ""
+    /// Files handed to us before storage finished resolving; replayed once
+    /// the store is ready so an at-launch open cannot race into the wrong
+    /// storage location.
+    @State private var pendingIncomingURLs: [URL] = []
+
+    /// Opens a note: a document window in place on macOS, a navigation push
+    /// on iOS.
+    private func open(_ note: NoteFile) {
+        #if os(macOS)
+        openAsDocument(note.url)
+        #else
+        selectedNote = note
+        #endif
+    }
+
+    #if os(macOS)
+    /// Routes through the shared document controller, the same path File >
+    /// Open and Open Recent use, so the file is edited in place and lands in
+    /// the recents list.
+    private func openAsDocument(_ url: URL) {
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+            guard let error else { return }
+            // An NSAlert rather than store.lastError: this can fire (e.g. a
+            // flatnote:// handoff to an inaccessible path) while the library
+            // window, which hosts the error alert, is closed.
+            let alert = NSAlert()
+            alert.messageText = "Could not open \"\(url.lastPathComponent)\""
+            alert.informativeText = error.localizedDescription
+            alert.runModal()
+        }
+    }
+    #endif
 
     private func createAndOpenNote() {
+        #if os(macOS)
+        // A fresh untitled document: it only becomes a file when saved (the
+        // panel defaults to the FlatNote iCloud folder), so closing an empty
+        // note never litters the library.
+        NSDocumentController.shared.newDocument(nil)
+        #else
         if let note = store.createBlankNote() {
             newNoteID = note.id
             selectedNote = note
         }
+        #endif
     }
 
     private func restoreWelcomeNote() {
@@ -26,7 +68,7 @@ struct NoteLibraryView: View {
         showingSettings = false
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             newNoteID = nil
-            selectedNote = note
+            open(note)
         }
     }
 
@@ -38,6 +80,44 @@ struct NoteLibraryView: View {
             return nil
         }
         return store.openPairedFile(path: path)
+    }
+
+    /// Incoming URLs (flatnote:// pairing, or a file handed to us on iOS).
+    /// Buffered until the store has resolved its storage location.
+    private func handleIncoming(_ url: URL) {
+        if url.scheme == "flatnote" {
+            #if os(macOS)
+            // Resolve the companion in our library by name and open it in
+            // place as a document; fall back to the URL's own path.
+            if url.host == "open",
+               let path = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?.first(where: { $0.name == "path" })?.value {
+                store.loadNotes()
+                let target = URL(fileURLWithPath: path).standardizedFileURL
+                let inStore = store.notes.first { $0.url.lastPathComponent == target.lastPathComponent }
+                openAsDocument(inStore?.url ?? target)
+            }
+            #else
+            if let note = openPairedNote(from: url) {
+                newNoteID = nil
+                selectedNote = note
+            }
+            #endif
+            return
+        }
+        #if os(macOS)
+        // Files are the document group's job; anything that still lands here
+        // opens in place through the same machinery.
+        openAsDocument(url)
+        #else
+        // A markdown file was tapped in Files, AirDrop, a share sheet, etc.
+        // Open it (in place if it is already ours, otherwise as an imported
+        // copy) instead of just launching to the library.
+        if let note = store.openIncomingFile(url) {
+            newNoteID = nil
+            selectedNote = note
+        }
+        #endif
     }
 
     private var filteredNotes: [NoteFile] {
@@ -71,7 +151,7 @@ struct NoteLibraryView: View {
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(filteredNotes) { note in
                             NoteCard(note: note, preview: store.preview(for: note))
-                                .onTapGesture { selectedNote = note }
+                                .onTapGesture { open(note) }
                                 .contextMenu {
                                     Button {
                                         renameText = note.displayName
@@ -108,7 +188,7 @@ struct NoteLibraryView: View {
                 if ProcessInfo.processInfo.environment["FLATNOTE_OPEN_FIRST"] == "1" {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
                         if selectedNote == nil, let first = store.notes.first {
-                            selectedNote = first
+                            open(first)
                         }
                     }
                 }
@@ -131,28 +211,21 @@ struct NoteLibraryView: View {
                 if phase == .active { store.loadNotes() }
             }
             .onOpenURL { url in
-                // FlatFile's paperclip handoff: flatnote://open?path=<abs path>.
-                // Open the companion note in place when it lives in our folder.
-                if url.scheme == "flatnote" {
-                    if let note = openPairedNote(from: url) {
-                        newNoteID = nil
-                        selectedNote = note
-                    }
-                    return
-                }
-                // A markdown file was tapped in Files, Finder, AirDrop, a share
-                // sheet, etc. Open it (in place if it is already ours, otherwise
-                // as an imported copy) instead of just launching to the library.
-                if let note = store.openIncomingFile(url) {
-                    newNoteID = nil
-                    selectedNote = note
+                // At launch the store may still be resolving its storage
+                // location (iCloud vs local). Handling a file before that
+                // finishes would import into the wrong place, so buffer it.
+                if store.isReady {
+                    handleIncoming(url)
+                } else {
+                    pendingIncomingURLs.append(url)
                 }
             }
-            #if os(macOS)
-            .onReceive(NotificationCenter.default.publisher(for: .flatNoteNewNote)) { _ in
-                createAndOpenNote()
+            .onChange(of: store.isReady) { _, ready in
+                guard ready, !pendingIncomingURLs.isEmpty else { return }
+                let urls = pendingIncomingURLs
+                pendingIncomingURLs = []
+                urls.forEach(handleIncoming)
             }
-            #endif
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .topBarLeading) {

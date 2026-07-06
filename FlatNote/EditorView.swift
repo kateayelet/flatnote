@@ -43,6 +43,67 @@ final class EditorController {
         currentMatch = 0
         webView?.evaluateJavaScript("clearSearch()")
     }
+
+    /// The web editor owns the undo stack (it intercepts all input), so the
+    /// macOS Edit menu forwards into it via the focused editor value.
+    func undo() { webView?.evaluateJavaScript("undo()") }
+    func redo() { webView?.evaluateJavaScript("redo()") }
+
+    #if os(macOS)
+    /// Suggested filename for exports, set by the owning document view.
+    var suggestedExportName = "Note"
+
+    /// File > Export as PDF: snapshots the rendered note (the full scrollable
+    /// content, Safari-style single tall page) to a user-chosen location.
+    func exportPDF() {
+        guard let webView else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.pdf]
+        panel.nameFieldStringValue = suggestedExportName + ".pdf"
+        panel.canCreateDirectories = true
+        let complete: (URL) -> Void = { [weak webView] url in
+            let config = WKPDFConfiguration()
+            webView?.createPDF(configuration: config) { result in
+                do {
+                    try result.get().write(to: url)
+                } catch {
+                    let alert = NSAlert()
+                    alert.messageText = "Could not export the PDF"
+                    alert.informativeText = error.localizedDescription
+                    alert.runModal()
+                }
+            }
+        }
+        if let window = webView.window {
+            panel.beginSheetModal(for: window) { response in
+                if response == .OK, let url = panel.url { complete(url) }
+            }
+        } else if panel.runModal() == .OK, let url = panel.url {
+            complete(url)
+        }
+    }
+
+    /// File > Print: a paginated print operation over the rendered note. The
+    /// print dialog's own PDF button is the second road to a PDF.
+    func printNote() {
+        guard let webView else { return }
+        let info = NSPrintInfo.shared.copy() as? NSPrintInfo ?? NSPrintInfo()
+        info.horizontalPagination = .fit
+        info.verticalPagination = .automatic
+        info.topMargin = 36
+        info.bottomMargin = 36
+        info.leftMargin = 36
+        info.rightMargin = 36
+        let operation = webView.printOperation(with: info)
+        operation.showsPrintPanel = true
+        operation.showsProgressPanel = true
+        if let window = webView.window {
+            operation.runModal(for: window, delegate: nil, didRun: nil, contextInfo: nil)
+        } else {
+            operation.run()
+        }
+    }
+    #endif
 }
 
 struct EditorView: View {
@@ -394,5 +455,9 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "`", with: "\\`")
             .replacingOccurrences(of: "$", with: "\\$")
+            // Template literals normalize CRLF/CR to LF in the cooked string;
+            // escaping CR preserves the file's line endings byte-for-byte, so
+            // opening a CRLF file in place never dirties or rewrites it.
+            .replacingOccurrences(of: "\r", with: "\\r")
     }
 }

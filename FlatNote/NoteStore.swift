@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if os(macOS)
+import AppKit
+#endif
 
 struct NoteFile: Identifiable, Hashable {
     let id: URL
@@ -33,6 +36,11 @@ class NoteStore {
     /// True once notes are being stored in (and synced through) iCloud.
     var iCloudAvailable = false
 
+    /// True once the storage location (iCloud or local) has resolved. Files
+    /// handed to the app before this must wait, or they land in the wrong
+    /// storage and become invisible to the library.
+    var isReady = false
+
     /// The iCloud container identifier. Must match the app's iCloud capability.
     private let ubiquityContainerID = "iCloud.com.aftrveil.flatnote"
 
@@ -57,6 +65,7 @@ class NoteStore {
         injectedDirectory = directory
         storageURL = directory
         loadNotes()
+        isReady = true
     }
 
     private static func localDocumentsURL() -> URL {
@@ -102,6 +111,7 @@ class NoteStore {
                     }
                     self.hasSeededWelcome = true
                 }
+                self.isReady = true
             }
         }
     }
@@ -147,6 +157,26 @@ class NoteStore {
             catch { writeError = error }
         }
         if let writeError { throw writeError }
+        if let coordError { throw coordError }
+    }
+
+    /// Moves a file with presenter notification, so an NSDocument that has the
+    /// file open follows the rename (window title, future autosaves) instead of
+    /// resurrecting the old name on its next save.
+    private func coordinatedMove(from src: URL, to dst: URL) throws {
+        var coordError: NSError?
+        var moveError: Error?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(writingItemAt: src, options: .forMoving,
+                               writingItemAt: dst, options: [],
+                               error: &coordError) { newSrc, newDst in
+            do {
+                coordinator.item(at: newSrc, willMoveTo: newDst)
+                try FileManager.default.moveItem(at: newSrc, to: newDst)
+                coordinator.item(at: newSrc, didMoveTo: newDst)
+            } catch { moveError = error }
+        }
+        if let moveError { throw moveError }
         if let coordError { throw coordError }
     }
 
@@ -219,7 +249,7 @@ class NoteStore {
         let ext = note.url.pathExtension.isEmpty ? "md" : note.url.pathExtension
         let dest = uniqueDestination(for: "\(title).\(ext)")
         do {
-            try FileManager.default.moveItem(at: note.url, to: dest)
+            try coordinatedMove(from: note.url, to: dest)
         } catch {
             return note
         }
@@ -273,7 +303,7 @@ class NoteStore {
         }
 
         do {
-            try FileManager.default.moveItem(at: note.url, to: dest)
+            try coordinatedMove(from: note.url, to: dest)
         } catch {
             lastError = "Could not rename \"\(note.displayName)\". \(error.localizedDescription)"
             return nil
@@ -289,6 +319,12 @@ class NoteStore {
     }
 
     func deleteNote(_ note: NoteFile) {
+        #if os(macOS)
+        // If the note is open in a document window, close it first: an open
+        // NSDocument is a file presenter, so deleting under it would block
+        // the coordinator and let the next autosave resurrect the file.
+        NSDocumentController.shared.document(for: note.url)?.close()
+        #endif
         do {
             try coordinatedDelete(note.url)
             notes.removeAll { $0.id == note.id }
