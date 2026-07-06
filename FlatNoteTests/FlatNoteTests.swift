@@ -438,6 +438,16 @@ struct MarkdownRenderTests {
         #expect(render("- [x] done").contains("task-cb-vis checked"))
     }
 
+    @Test func taskCheckboxCarriesLineIndex() throws {
+        // The clickable-checkbox toggle (AFTR-417) maps a tapped box back to its
+        // source line via data-line on the .task-cb-vis span. Without it the tap
+        // handler can't know which line to toggle.
+        let render = try makeRenderer()
+        let html = render("intro\n- [ ] todo")
+        #expect(html.contains("task-cb-vis"))
+        #expect(html.contains("class=\"task-cb-vis\" data-line=\"1\""))
+    }
+
     @Test func boldRendersAndDoesNotLeakItalic() throws {
         let render = try makeRenderer()
         let html = render("**bold**")
