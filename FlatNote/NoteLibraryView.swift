@@ -12,12 +12,67 @@ struct NoteLibraryView: View {
     @State private var newNoteID: URL?
     @State private var searchText = ""
     @State private var showingSettings = false
+    @State private var showingFilePicker = false
     @State private var renamingNote: NoteFile?
     @State private var renameText = ""
     /// Files handed to us before storage finished resolving; replayed once
     /// the store is ready so an at-launch open cannot race into the wrong
     /// storage location.
     @State private var pendingIncomingURLs: [URL] = []
+
+    #if os(iOS)
+    /// Types the Open File picker offers. Our exported markdown UTI plus
+    /// plain text, so .md, .markdown, and .txt are all selectable.
+    static let openableTypes: [UTType] = {
+        var types: [UTType] = [.plainText, .text]
+        if let md = UTType("net.daringfireball.markdown") { types.insert(md, at: 0) }
+        return types
+    }()
+
+    /// Files opened in place from outside the library, most recent first.
+    /// Tapping re-resolves the bookmark for a fresh security scope.
+    @ViewBuilder
+    private var externalRecentsSection: some View {
+        if !store.externalRecents.isEmpty, searchText.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Recent Files")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(.uppercase)
+                ForEach(store.externalRecents) { item in
+                    Button {
+                        if let note = store.openExternalRecent(item) {
+                            newNoteID = nil
+                            selectedNote = note
+                        }
+                    } label: {
+                        HStack {
+                            Image(systemName: "doc.text")
+                                .foregroundStyle(.secondary)
+                            Text(item.displayName)
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            Spacer()
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 10)
+                        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .contextMenu {
+                        Button(role: .destructive) {
+                            store.removeExternalRecent(item)
+                        } label: {
+                            Label("Remove from Recents", systemImage: "minus.circle")
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        }
+    }
+    #endif
 
     /// Opens a note: a document window in place on macOS, a navigation push
     /// on iOS.
@@ -148,6 +203,9 @@ struct NoteLibraryView: View {
                     ContentUnavailableView.search(text: searchText)
                 } else {
                     ScrollView {
+                    #if os(iOS)
+                    externalRecentsSection
+                    #endif
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(filteredNotes) { note in
                             NoteCard(note: note, preview: store.preview(for: note))
@@ -220,6 +278,24 @@ struct NoteLibraryView: View {
                     pendingIncomingURLs.append(url)
                 }
             }
+            #if os(iOS)
+            .fileImporter(
+                isPresented: $showingFilePicker,
+                allowedContentTypes: Self.openableTypes,
+                allowsMultipleSelection: false
+            ) { result in
+                switch result {
+                case .success(let urls):
+                    if let url = urls.first, let note = store.openExternalFile(url) {
+                        newNoteID = nil
+                        selectedNote = note
+                    }
+                case .failure(let error):
+                    store.lastError = error.localizedDescription
+                }
+            }
+            .task { store.loadExternalRecents() }
+            #endif
             .onChange(of: store.isReady) { _, ready in
                 guard ready, !pendingIncomingURLs.isEmpty else { return }
                 let urls = pendingIncomingURLs
@@ -233,6 +309,13 @@ struct NoteLibraryView: View {
                         Image(systemName: "gearshape")
                     }
                     .tint(.primary)
+                }
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingFilePicker = true } label: {
+                        Image(systemName: "folder")
+                    }
+                    .tint(.primary)
+                    .accessibilityLabel("Open File")
                 }
                 #else
                 ToolbarItem(placement: .navigation) {

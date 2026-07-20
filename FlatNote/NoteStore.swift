@@ -393,8 +393,130 @@ class NoteStore {
             if let existing = note(matching: resolved) { return existing }
         }
 
-        // Otherwise it lives outside the app: import a copy and open that.
-        return importFile(from: url)
+        // From the system Inbox the OS already made a copy for us (share
+        // sheet, Mail attachment); adopt that copy into the library.
+        let inbox = Self.localDocumentsURL()
+            .appendingPathComponent("Inbox", isDirectory: true).standardizedFileURL
+        if resolved.deletingLastPathComponent().standardizedFileURL == inbox {
+            return importFile(from: url)
+        }
+
+        // Anything else we can reach directly opens IN PLACE — never a copy.
+        // (The pre-1.1 behavior imported a copy here; that is the same design
+        // that caused the Mac silent-save incident, and it is gone.)
+        return openExternalFile(url)
+    }
+
+    // MARK: - External notes (opened in place)
+
+    /// Files opened in place from outside our storage. We hold each one's
+    /// security scope for the life of the process (scopes die with it), so
+    /// the editor can keep reading and writing the file where it lives.
+    private var externalScopedURLs: [URL] = []
+
+    /// Recent externally opened files, newest first, resolved from bookmarks
+    /// at launch. Bookmarks are app configuration, not note data.
+    private(set) var externalRecents: [NoteFile] = []
+
+    private static let externalRecentsKey = "externalRecentBookmarks"
+    private static let maxExternalRecents = 8
+
+    /// True when a note lives outside the library folder (opened in place).
+    func isExternal(_ note: NoteFile) -> Bool {
+        note.url.standardizedFileURL.deletingLastPathComponent() != documentsURL.standardizedFileURL
+    }
+
+    /// Open a file that lives outside our storage IN PLACE. The file is never
+    /// copied: we retain its security scope for the session so edits write
+    /// back to the file where it lives, and keep a bookmark so it appears in
+    /// Recents next launch.
+    func openExternalFile(_ url: URL) -> NoteFile? {
+        let scoped = url.startAccessingSecurityScopedResource()
+        let resolved = Self.resolveICloudPlaceholder(url).standardizedFileURL
+
+        guard ["md", "markdown", "txt"].contains(resolved.pathExtension.lowercased()) else {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            lastError = "\"\(resolved.lastPathComponent)\" is not a note FlatNote can open."
+            return nil
+        }
+        guard FileManager.default.isReadableFile(atPath: resolved.path) else {
+            if scoped { url.stopAccessingSecurityScopedResource() }
+            lastError = "\"\(resolved.lastPathComponent)\" could not be opened."
+            return nil
+        }
+
+        if scoped { externalScopedURLs.append(url) }
+
+        let attrs = try? FileManager.default.attributesOfItem(atPath: resolved.path)
+        let modified = attrs?[.modificationDate] as? Date ?? Date()
+        let note = NoteFile(id: resolved, name: resolved.lastPathComponent, modifiedDate: modified)
+        recordExternalRecent(url, note: note)
+        return note
+    }
+
+    /// Resolve persisted recent-file bookmarks (dropping any that no longer
+    /// resolve), newest first. Scopes are not started here — only when a
+    /// recent is actually opened.
+    func loadExternalRecents() {
+        let blobs = UserDefaults.standard.array(forKey: Self.externalRecentsKey) as? [Data] ?? []
+        var items: [NoteFile] = []
+        var kept: [Data] = []
+        for data in blobs {
+            var stale = false
+            guard let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale) else { continue }
+            var blob = data
+            if stale, let fresh = try? url.bookmarkData() { blob = fresh }
+            kept.append(blob)
+            items.append(NoteFile(id: url.standardizedFileURL, name: url.lastPathComponent, modifiedDate: .distantPast))
+        }
+        externalRecents = items
+        if kept.count != blobs.count { UserDefaults.standard.set(kept, forKey: Self.externalRecentsKey) }
+    }
+
+    /// Open a file from the Recents list: re-resolve its bookmark so we get a
+    /// fresh security scope, then the normal in-place path.
+    func openExternalRecent(_ note: NoteFile) -> NoteFile? {
+        let blobs = UserDefaults.standard.array(forKey: Self.externalRecentsKey) as? [Data] ?? []
+        for data in blobs {
+            var stale = false
+            guard let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale),
+                  url.standardizedFileURL == note.url else { continue }
+            return openExternalFile(url)
+        }
+        lastError = "\"\(note.displayName)\" is no longer where it was. Open it again from the Files app."
+        return nil
+    }
+
+    func removeExternalRecent(_ note: NoteFile) {
+        let blobs = UserDefaults.standard.array(forKey: Self.externalRecentsKey) as? [Data] ?? []
+        let kept = blobs.filter { data in
+            var stale = false
+            guard let url = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale) else { return false }
+            return url.standardizedFileURL != note.url
+        }
+        UserDefaults.standard.set(kept, forKey: Self.externalRecentsKey)
+        externalRecents.removeAll { $0.id == note.id }
+    }
+
+    /// Record (or bump) a just-opened external file. The bookmark must be
+    /// made while the security scope is active.
+    private func recordExternalRecent(_ url: URL, note: NoteFile) {
+        guard let bookmark = try? url.bookmarkData() else { return }
+        var blobs = UserDefaults.standard.array(forKey: Self.externalRecentsKey) as? [Data] ?? []
+        // De-dup by resolved URL, newest first.
+        blobs.removeAll { data in
+            var stale = false
+            guard let existing = try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale) else { return true }
+            return existing.standardizedFileURL == note.url
+        }
+        blobs.insert(bookmark, at: 0)
+        if blobs.count > Self.maxExternalRecents { blobs = Array(blobs.prefix(Self.maxExternalRecents)) }
+        UserDefaults.standard.set(blobs, forKey: Self.externalRecentsKey)
+        externalRecents.removeAll { $0.id == note.id }
+        externalRecents.insert(note, at: 0)
+        if externalRecents.count > Self.maxExternalRecents {
+            externalRecents = Array(externalRecents.prefix(Self.maxExternalRecents))
+        }
     }
 
     private func note(matching url: URL) -> NoteFile? {
