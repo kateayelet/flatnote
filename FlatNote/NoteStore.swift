@@ -180,11 +180,22 @@ class NoteStore {
         if let coordError { throw coordError }
     }
 
+    /// Deleting a note must be recoverable — the files are the user's. Trash,
+    /// never destroy. `trashItem` puts the note in the visible Trash (Finder's
+    /// on Mac, the Files app's Recently Deleted on iOS); iCloud items land in
+    /// the container's `.Trash`. Only if the volume has no trash at all (rare:
+    /// some network/USB volumes) do we fall back to a real delete.
     private func coordinatedDelete(_ url: URL) throws {
         var coordError: NSError?
         var deleteError: Error?
         NSFileCoordinator().coordinate(writingItemAt: url, options: .forDeleting, error: &coordError) { resolved in
-            do { try FileManager.default.removeItem(at: resolved) }
+            do {
+                do {
+                    try FileManager.default.trashItem(at: resolved, resultingItemURL: nil)
+                } catch CocoaError.featureUnsupported {
+                    try FileManager.default.removeItem(at: resolved)
+                }
+            }
             catch { deleteError = error }
         }
         if let deleteError { throw deleteError }
