@@ -22,13 +22,33 @@ function renderInline(text) {
     let result = '';
     let i = 0;
     while (i < text.length) {
-        // Inline code (highest priority -- contents not parsed)
+        // Inline code (highest priority -- contents not parsed).
+        // A run of N backticks opens a span closed by the next run of exactly
+        // N backticks, so `` `code` `` can show literal backticks inside code.
         if (text[i] === '`') {
-            const end = text.indexOf('`', i + 1);
+            let run = 1;
+            while (text[i + run] === '`') run++;
+            const delim = text.slice(i, i + run);
+            let search = i + run, end = -1;
+            while (end === -1) {
+                const idx = text.indexOf(delim, search);
+                if (idx === -1) break;
+                let closeRun = 0;
+                while (text[idx + closeRun] === '`') closeRun++;
+                if (closeRun === run) end = idx; else search = idx + closeRun;
+            }
             if (end !== -1) {
-                const inner = text.slice(i + 1, end);
-                result += '<span class="mk">`</span><span class="md-code">' + esc(inner) + '</span><span class="mk">`</span>';
-                i = end + 1;
+                let inner = text.slice(i + run, end);
+                let pre = delim, post = delim;
+                // One space of padding belongs to the delimiters (CommonMark),
+                // written into the hidden mk spans so textContent stays exact.
+                if (run > 1 && inner.length > 2 && inner[0] === ' ' && inner[inner.length - 1] === ' ') {
+                    pre = delim + ' ';
+                    post = ' ' + delim;
+                    inner = inner.slice(1, -1);
+                }
+                result += '<span class="mk">' + pre + '</span><span class="md-code">' + esc(inner) + '</span><span class="mk">' + post + '</span>';
+                i = end + run;
                 continue;
             }
         }

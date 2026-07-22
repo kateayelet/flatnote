@@ -824,7 +824,7 @@ class NoteStore {
     /// Relative image paths a note references ("assets/x/img.png"), deduped.
     /// Remote and absolute references are left alone: only files that live
     /// with the note travel with it.
-    private static func referencedImagePaths(in content: String) -> [String] {
+    static func referencedImagePaths(in content: String) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: #"!\[[^\]]*\]\(([^)\s]+)\)"#) else { return [] }
         let range = NSRange(content.startIndex..., in: content)
         var seen = Set<String>()
@@ -966,7 +966,7 @@ class NoteStore {
 
     FlatNote formats your writing as you type. Type the plain markdown on the left, and it becomes the styled text on the right.
 
-    ## Italic and bold
+    ## Styling text
 
     `*italic*` becomes *italic*
 
@@ -976,7 +976,7 @@ class NoteStore {
 
     `~~strikethrough~~` becomes ~~strikethrough~~
 
-    Wrap a word in backticks for `inline code`.
+    `` `inline code` `` becomes `inline code`
 
     ## Headings
 

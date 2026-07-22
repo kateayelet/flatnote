@@ -143,12 +143,16 @@ struct NoteStoreTests {
         #expect(store.readContent(of: restored!) == NoteStore.welcomeMarkdown)
     }
 
-    @Test func welcomeMarkdownShowsLiveExamples() {
+    @Test func sampleMarkdownShowsLiveExamples() {
         // AFTR-420: the guide must pair the markdown with its rendered result
-        // rather than describe syntax in prose, and frame markdown around freedom.
-        let md = NoteStore.welcomeMarkdown
+        // rather than describe syntax in prose, and frame markdown around
+        // freedom. The examples moved from the welcome note into the sample
+        // note in the 1.1 rework (LIFE-114).
+        let md = NoteStore.sampleMarkdown
         #expect(md.contains("`*italic*` becomes *italic*"))
         #expect(md.contains("`**bold**` becomes **bold**"))
+        // Every example shows the actual keystrokes, inline code included.
+        #expect(md.contains("`` `inline code` `` becomes `inline code`"))
         #expect(md.contains("## Why markdown"))
         #expect(!md.contains("two asterisks"))   // old prose phrasing is gone
     }
@@ -357,17 +361,36 @@ struct NoteStoreTests {
         #expect(!plain.contains("http"))
     }
 
-    @Test func exportAllProducesOnlyMarkdownURLs() {
+    @Test func imagelessNoteExportsAsPlainMarkdown() {
+        let (store, tmp) = makeTempStore()
+        defer { cleanup(tmp) }
+
+        let note = store.createNote(name: "a.md")!
+        let url = store.exportItemURL(for: note)
+        #expect(url.pathExtension == "md")
+    }
+
+    @Test func referencedImagePathsFindsRelativeImagesOnly() {
+        let content = """
+        ![crumb](assets/crumb.png)
+        ![remote](https://example.com/x.png)
+        ![absolute](/etc/x.png)
+        ![escape](../up.png)
+        ![dupe](assets/crumb.png)
+        """
+        let paths = NoteStore.referencedImagePaths(in: content)
+        #expect(paths == ["assets/crumb.png"])
+    }
+
+    @Test func libraryExportZips() {
         let (store, tmp) = makeTempStore()
         defer { cleanup(tmp) }
 
         _ = store.createNote(name: "a.md")
-        try! "x".write(to: tmp.appendingPathComponent("b.txt"), atomically: true, encoding: .utf8)
         store.loadNotes()
 
-        let urls = store.markdownExportURLs()
-        #expect(urls.count == store.notes.count)
-        #expect(urls.allSatisfy { $0.pathExtension == "md" })
+        let url = store.libraryExportZipURL()
+        #expect(url?.pathExtension == "zip")
     }
 }
 
@@ -504,6 +527,17 @@ struct MarkdownRenderTests {
         #expect(html.contains("md-italic"))    // the rendered result
     }
 
+    @Test func doubleBacktickShowsLiteralBackticksInCode() throws {
+        // The sample note's inline-code example: `` `inline code` `` becomes
+        // `inline code`. The double-backtick span must show the inner
+        // backticks literally, and the padding spaces move into the hidden
+        // mk delimiter spans so textContent still equals the source.
+        let render = try makeRenderer()
+        let html = render("`` `inline code` `` becomes `inline code`")
+        #expect(html.contains(">`inline code`<"))  // literal backticks visible in the code span
+        #expect(html.contains("md-code"))
+    }
+
     @Test func htmlIsEscaped() throws {
         let render = try makeRenderer()
         let html = render("a < b & c")
@@ -520,6 +554,8 @@ struct MarkdownRenderTests {
             "# Title", "## Sub", "- item", "* star", "1. first",
             "- [ ] todo", "- [x] done", "> quote",
             "**bold** and *italic* and ~~strike~~ and `code`",
+            "`` `inline code` `` becomes `inline code`",
+            "a `lone backtick",
             "a < b & c", "plain text", "",
         ]
         for md in cases {
