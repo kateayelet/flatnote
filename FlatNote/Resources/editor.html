@@ -122,6 +122,11 @@ html, body {
 }
 .line.active-line .task-cb-vis { display: none; }
 
+/* Inline image blocks: raw "![alt](src)" hidden via .mk until the line is
+   active; while active the image hides so the raw text is editable. */
+.md-image { display: block; max-width: 100%; max-height: 60vh; border-radius: 8px; margin: 4px 0; }
+.line.active-line .md-image { display: none; }
+
 /* In-note find highlights */
 mark.search-hit { background: rgba(253, 217, 94, 0.45); color: inherit; border-radius: 2px; }
 mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
@@ -404,6 +409,35 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         }
     });
 
+    // Image paste (and image-file drop routed here by WebKit as a paste):
+    // ship the bytes to the host, which saves a real image file next to the
+    // note and calls insertPastedImage with the relative path. Fires before
+    // beforeinput; preventDefault stops the text path double-handling it.
+    editor.addEventListener('paste', (e) => {
+        const items = (e.clipboardData && e.clipboardData.items) || [];
+        for (const item of items) {
+            if (item.kind === 'file' && item.type && item.type.indexOf('image/') === 0) {
+                e.preventDefault();
+                const file = item.getAsFile();
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const base64 = String(reader.result).split(',')[1] || '';
+                    if (base64) postToHost({ action: 'pasteImage', data: base64, mime: item.type });
+                };
+                reader.readAsDataURL(file);
+                return;
+            }
+        }
+    });
+
+    // Called back by the host once the pasted image is on disk. The image
+    // syntax only renders as a block on its own line, so surround it with
+    // newlines rather than splicing it into the current line's text.
+    window.insertPastedImage = function(relPath) {
+        handlePaste('\n![](' + relPath + ')\n');
+    };
+
     editor.addEventListener('beforeinput', (e) => {
         if (isComposing) return;
         const t = e.inputType;
@@ -459,7 +493,19 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
 
         if (t === 'insertFromPaste' || t === 'insertFromDrop') {
             e.preventDefault();
-            const text = e.dataTransfer ? e.dataTransfer.getData('text/plain') : '';
+            const dt = e.dataTransfer;
+            // A dragged-in image file takes the same path as a pasted one.
+            if (dt && dt.files && dt.files.length && dt.files[0].type.indexOf('image/') === 0) {
+                const file = dt.files[0];
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const base64 = String(reader.result).split(',')[1] || '';
+                    if (base64) postToHost({ action: 'pasteImage', data: base64, mime: file.type });
+                };
+                reader.readAsDataURL(file);
+                return;
+            }
+            const text = dt ? dt.getData('text/plain') : '';
             if (text) handlePaste(text);
             return;
         }

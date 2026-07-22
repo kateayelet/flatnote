@@ -117,6 +117,18 @@ function renderMarkdown(md) {
         if (bq) return mkDiv(i, 'line-quote',
             '<span class="mk">' + esc(bq[1]) + '</span>' + renderInline(bq[2]));
 
+        // Image alone on a line: ![alt](src) -- raw text kept (hidden until
+        // active) so cursor offsets stay exact; the img is an extra non-text
+        // element, resolved through the flatnote-asset scheme for local files.
+        const img = line.match(/^(!\[[^\]]*\]\(([^)\s]+)\))\s*$/);
+        if (img) {
+            const src = img[2];
+            const resolved = /^[a-z][a-z0-9+.-]*:/i.test(src) ? src : 'flatnote-asset:///' + encodeURI(src);
+            return mkDiv(i, 'line-image',
+                '<span class="mk">' + esc(line) + '</span>' +
+                '<img class="md-image" src="' + resolved.replace(/"/g, '&quot;') + '" contenteditable="false" draggable="false">');
+        }
+
         // Task list: - [x] text  (raw marker hidden, visual checkbox shown)
         const task = line.match(/^([-*]\s+\[([ xX])\]\s)(.*)/);
         if (task) {

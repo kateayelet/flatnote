@@ -79,7 +79,7 @@ struct DocumentEditorView: View {
     }
 
     var body: some View {
-        DocumentWebView(text: $document.text, controller: controller)
+        DocumentWebView(text: $document.text, controller: controller, fileURL: fileURL)
             .onAppear { controller.suggestedExportName = exportName }
             .onChange(of: fileURL) { _, _ in controller.suggestedExportName = exportName }
             .toolbar {
@@ -147,6 +147,7 @@ struct DocumentEditorView: View {
 private struct DocumentWebView: NSViewRepresentable {
     @Binding var text: String
     let controller: EditorController
+    var fileURL: URL?
 
     func makeCoordinator() -> DocumentEditorCoordinator {
         DocumentEditorCoordinator(text: $text, controller: controller)
@@ -162,6 +163,7 @@ private struct DocumentWebView: NSViewRepresentable {
         // (Revert To, iCloud sync) into the editor. Echoes of the editor's own
         // writes are skipped inside pushContentIfChanged.
         context.coordinator.rebind($text)
+        context.coordinator.fileURL = fileURL
         context.coordinator.pushContentIfChanged(text)
     }
 }
@@ -175,6 +177,9 @@ final class DocumentEditorCoordinator: NSObject, WKNavigationDelegate, WKScriptM
     let controller: EditorController
     private weak var webView: WKWebView?
     private var editorReady = false
+    /// The document's on-disk location, kept current by updateNSView so
+    /// pasted images land next to the file (and Save As keeps working).
+    var fileURL: URL?
     /// What the web editor currently holds, to tell external changes from
     /// echoes of our own binding writes.
     private var webContent: String?
@@ -194,11 +199,22 @@ final class DocumentEditorCoordinator: NSObject, WKNavigationDelegate, WKScriptM
         let userController = WKUserContentController()
         userController.add(self, name: "flatnote")
         config.userContentController = userController
+        config.setURLSchemeHandler(AssetSchemeHandler(baseDirectory: { [weak self] in
+            self?.fileURL?.deletingLastPathComponent()
+        }), forURLScheme: AssetSchemeHandler.scheme)
 
         let webView = EditorWKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
         self.webView = webView
         controller.webView = webView
+        webView.onPasteImage = { [weak self] data, mime in
+            guard let self, let fileURL = self.fileURL else { NSSound.beep(); return }
+            if let rel = AssetSchemeHandler.saveImageAsset(data: data, mime: mime, noteURL: fileURL) {
+                self.webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
+            } else {
+                NSSound.beep()
+            }
+        }
 
         if let htmlURL = Bundle.main.url(forResource: "editor", withExtension: "html", subdirectory: "Resources") ??
            Bundle.main.url(forResource: "editor", withExtension: "html") {
@@ -245,6 +261,20 @@ final class DocumentEditorCoordinator: NSObject, WKNavigationDelegate, WKScriptM
             webContent = markdown
             if text.wrappedValue != markdown {
                 text.wrappedValue = markdown
+            }
+        }
+
+        if action == "pasteImage",
+           let b64 = body["data"] as? String,
+           let data = Data(base64Encoded: b64) {
+            // An untitled document has nowhere on disk to put the asset yet;
+            // the paste is dropped rather than inventing a location.
+            guard let fileURL else { NSSound.beep(); return }
+            let mime = body["mime"] as? String ?? "image/png"
+            if let rel = AssetSchemeHandler.saveImageAsset(data: data, mime: mime, noteURL: fileURL) {
+                webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
+            } else {
+                NSSound.beep()
             }
         }
     }

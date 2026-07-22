@@ -106,6 +106,84 @@ final class EditorController {
     #endif
 }
 
+/// Serves local images referenced by a note ("assets/x.png") to the web
+/// editor via flatnote-asset:///, resolving against the note's own directory.
+/// Containment-checked so a crafted path cannot read outside it.
+final class AssetSchemeHandler: NSObject, WKURLSchemeHandler {
+    static let scheme = "flatnote-asset"
+    private let baseDirectory: () -> URL?
+
+    init(baseDirectory: @escaping () -> URL?) {
+        self.baseDirectory = baseDirectory
+    }
+
+    func webView(_ webView: WKWebView, start task: WKURLSchemeTask) {
+        guard let url = task.request.url, let base = baseDirectory() else {
+            task.didFailWithError(URLError(.fileDoesNotExist)); return
+        }
+        let relative = (url.path.removingPercentEncoding ?? url.path).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let file = base.appendingPathComponent(relative).standardizedFileURL
+        guard file.path.hasPrefix(base.standardizedFileURL.path + "/") || file.path == base.standardizedFileURL.path,
+              let data = try? Data(contentsOf: file) else {
+            task.didFailWithError(URLError(.fileDoesNotExist)); return
+        }
+        let mime: String
+        switch file.pathExtension.lowercased() {
+        case "jpg", "jpeg": mime = "image/jpeg"
+        case "gif": mime = "image/gif"
+        case "heic": mime = "image/heic"
+        case "webp": mime = "image/webp"
+        default: mime = "image/png"
+        }
+        task.didReceive(URLResponse(url: url, mimeType: mime,
+                                    expectedContentLength: data.count, textEncodingName: nil))
+        task.didReceive(data)
+        task.didFinish()
+    }
+
+    func webView(_ webView: WKWebView, stop task: WKURLSchemeTask) {}
+
+    /// Writes pasted image bytes as a real file next to the note:
+    /// assets/<note-name>/img-<timestamp>.<ext>, and returns the relative
+    /// path to reference in the markdown. The .md stays plain text; any
+    /// other Markdown app renders the same note.
+    static func saveImageAsset(data: Data, mime: String, noteURL: URL) -> String? {
+        let ext: String
+        switch mime {
+        case "image/jpeg": ext = "jpg"
+        case "image/gif": ext = "gif"
+        case "image/heic": ext = "heic"
+        case "image/webp": ext = "webp"
+        default: ext = "png"
+        }
+        // Folder named for the note, sanitized to stay a clean markdown path
+        // (the link syntax cannot hold spaces).
+        let noteName = noteURL.deletingPathExtension().lastPathComponent
+        let safe = noteName.map { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" ? $0 : "-" }
+        let dirName = String(safe)
+        let dir = noteURL.deletingLastPathComponent()
+            .appendingPathComponent("assets", isDirectory: true)
+            .appendingPathComponent(dirName, isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyyMMdd-HHmmss"
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            let stamp = formatter.string(from: Date())
+            var name = "img-\(stamp).\(ext)"
+            var counter = 2
+            while FileManager.default.fileExists(atPath: dir.appendingPathComponent(name).path) {
+                name = "img-\(stamp)-\(counter).\(ext)"
+                counter += 1
+            }
+            try data.write(to: dir.appendingPathComponent(name))
+            return "assets/\(dirName)/\(name)"
+        } catch {
+            return nil
+        }
+    }
+}
+
 struct EditorView: View {
     let store: NoteStore
     let note: NoteFile
@@ -238,6 +316,57 @@ final class EditorWKWebView: WKWebView {}
 /// coordinator hand it focus once it is in a window.
 final class EditorWKWebView: WKWebView {
     override var acceptsFirstResponder: Bool { true }
+
+    /// Set by the coordinator. macOS WebKit does not hand pasteboard images to
+    /// the JS paste event, so an image paste is intercepted natively here and
+    /// routed to the same save-asset path; anything else falls through.
+    var onPasteImage: ((Data, String) -> Void)?
+
+    /// True if the pasteboard held an image (and no text) and it was routed
+    /// to the host. Text-plus-image clipboards (e.g. copied web content) fall
+    /// through to WebKit's own paste.
+    private func handleImagePasteIfAvailable() -> Bool {
+        let pb = NSPasteboard.general
+        guard pb.string(forType: .string) == nil, let onPasteImage else { return false }
+        if let png = pb.data(forType: .png) {
+            onPasteImage(png, "image/png")
+            return true
+        }
+        if let tiff = pb.data(forType: .tiff),
+           let rep = NSBitmapImageRep(data: tiff),
+           let png = rep.representation(using: .png, properties: [:]) {
+            onPasteImage(png, "image/png")
+            return true
+        }
+        return false
+    }
+
+    /// WKWebView consumes Cmd+V inside its own key handling, so the paste:
+    /// responder action never fires for the key press; the key equivalent is
+    /// the reliable interception point.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
+           event.charactersIgnoringModifiers?.lowercased() == "v",
+           handleImagePasteIfAvailable() {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Menu bar Edit > Paste routes here via the responder chain. WKWebView's
+    /// own paste: is private, so this shadow handles the image case and
+    /// invokes the superclass implementation dynamically otherwise.
+    @objc func paste(_ sender: Any?) {
+        if handleImagePasteIfAvailable() { return }
+        // Statically WKWebView, NOT object_getClass's superclass: the runtime
+        // can interpose a dynamic subclass, which would make that lookup find
+        // this very method and recurse until the stack dies.
+        let sel = NSSelectorFromString("paste:")
+        if let imp = class_getMethodImplementation(WKWebView.self, sel) {
+            typealias PasteFunc = @convention(c) (AnyObject, Selector, Any?) -> Void
+            unsafeBitCast(imp, to: PasteFunc.self)(self, sel, sender)
+        }
+    }
 }
 #endif
 
@@ -353,6 +482,9 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         let userController = WKUserContentController()
         userController.add(self, name: "flatnote")
         config.userContentController = userController
+        config.setURLSchemeHandler(AssetSchemeHandler(baseDirectory: { [weak self] in
+            self?.note.url.deletingLastPathComponent()
+        }), forURLScheme: AssetSchemeHandler.scheme)
 
         let webView = EditorWKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = self
@@ -365,6 +497,15 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         webView.backgroundColor = .systemBackground
         webView.scrollView.backgroundColor = .systemBackground
         webView.scrollView.keyboardDismissMode = .interactive
+        #else
+        webView.onPasteImage = { [weak self] data, mime in
+            guard let self else { return }
+            if let rel = AssetSchemeHandler.saveImageAsset(data: data, mime: mime, noteURL: self.note.url) {
+                self.webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
+            } else {
+                self.store.lastError = "Could not save the pasted image."
+            }
+        }
         #endif
 
         if let htmlURL = Bundle.main.url(forResource: "editor", withExtension: "html", subdirectory: "Resources") ??
@@ -428,6 +569,17 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
             saveTimer?.invalidate()
             saveTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
                 self?.flushPendingSave()
+            }
+        }
+
+        if action == "pasteImage",
+           let b64 = body["data"] as? String,
+           let data = Data(base64Encoded: b64) {
+            let mime = body["mime"] as? String ?? "image/png"
+            if let rel = AssetSchemeHandler.saveImageAsset(data: data, mime: mime, noteURL: note.url) {
+                webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
+            } else {
+                store.lastError = "Could not save the pasted image."
             }
         }
     }
