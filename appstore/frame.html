@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body {
+    background: #F2F1ED;
+    font-family: system-ui, -apple-system, "Helvetica Neue", sans-serif;
+    display: flex; flex-direction: column; align-items: center;
+    color: #14120F;
+  }
+  .text { text-align: center; z-index: 2; }
+  h1 {
+    font-weight: 700; letter-spacing: -0.02em; line-height: 1.08;
+    white-space: pre-line;
+  }
+  .sub {
+    color: #55524C; font-weight: 400; line-height: 1.4; white-space: pre-line;
+  }
+  .device {
+    background: #111; overflow: hidden;
+    box-shadow: 0 30px 90px rgba(20, 18, 15, 0.22);
+  }
+  .device img { display: block; width: 100%; }
+  /* Text-only thesis frame */
+  .thesis {
+    flex: 1; display: flex; flex-direction: column;
+    justify-content: center; align-items: center; text-align: center;
+  }
+  .thesis .mark { font-weight: 700; }
+  .thesis .footer { position: absolute; color: #8A867E; }
+</style>
+</head>
+<body>
+<script>
+  const q = new URLSearchParams(location.search);
+  const W = +q.get('w'), H = +q.get('h');
+  const kind = q.get('kind') || 'shot';
+  document.body.style.width = W + 'px';
+  document.body.style.height = H + 'px';
+  const S = W / 1320;  // scale factor relative to iPhone canvas
+
+  if (kind === 'shot') {
+    const devW = +q.get('devw') || Math.round(W * 0.78);
+    const pad = Math.round(16 * S);
+    const radius = Math.round((+q.get('radius') || 150) * (devW / 1320)) + pad;
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="text" style="margin-top:${Math.round(150 * S)}px; max-width:${Math.round(W * 0.86)}px">
+        <h1 style="font-size:${Math.round(118 * S)}px">${q.get('h1')}</h1>
+        <div class="sub" style="font-size:${Math.round(52 * S)}px; margin-top:${Math.round(40 * S)}px">${q.get('sub') || ''}</div>
+      </div>
+      <div class="device" style="width:${devW}px; margin-top:${Math.round(100 * S)}px;
+           padding:${pad}px; border-radius:${radius}px">
+        <img src="${q.get('img')}" style="border-radius:${radius - pad}px">
+      </div>`);
+  } else {
+    document.body.insertAdjacentHTML('beforeend', `
+      <div class="thesis" style="padding:0 ${Math.round(W * 0.09)}px">
+        <div class="mark" style="font-size:${Math.round(130 * S)}px; letter-spacing:-0.02em; line-height:1.12; white-space:pre-line">${q.get('h1')}</div>
+        <div class="sub" style="font-size:${Math.round(56 * S)}px; margin-top:${Math.round(90 * S)}px; white-space:pre-line">${q.get('sub') || ''}</div>
+        <div class="footer" style="bottom:${Math.round(140 * S)}px; font-size:${Math.round(44 * S)}px">${q.get('footer') || ''}</div>
+      </div>`);
+  }
+</script>
+</body>
+</html>
