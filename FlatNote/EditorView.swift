@@ -110,6 +110,9 @@ struct EditorView: View {
     let store: NoteStore
     let note: NoteFile
     var isNew: Bool = false
+    /// iOS: asks the library to run its rename flow for this note. macOS
+    /// document windows already rename from the title bar via NSDocument.
+    var onRequestRename: (() -> Void)? = nil
 
     @State private var controller = EditorController()
     @State private var showingFind = false
@@ -122,6 +125,17 @@ struct EditorView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .navigationTitle(note.displayName)
+            #if os(iOS)
+            .toolbarTitleMenu {
+                if let onRequestRename {
+                    Button {
+                        onRequestRename()
+                    } label: {
+                        Label("Rename", systemImage: "pencil")
+                    }
+                }
+            }
+            #endif
             .toolbar {
                 #if os(iOS)
                 ToolbarItem(placement: .topBarTrailing) {

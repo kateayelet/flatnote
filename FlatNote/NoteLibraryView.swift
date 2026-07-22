@@ -116,6 +116,11 @@ struct NoteLibraryView: View {
         #endif
     }
 
+    private func beginRename(_ note: NoteFile) {
+        renameText = note.displayName
+        renamingNote = note
+    }
+
     private func restoreWelcomeNote() {
         guard let note = store.restoreWelcomeNote() else { return }
         // Close Settings first, then open the restored note so the sheet
@@ -208,24 +213,14 @@ struct NoteLibraryView: View {
                     #endif
                     LazyVGrid(columns: columns, spacing: 12) {
                         ForEach(filteredNotes) { note in
-                            NoteCard(note: note, preview: store.preview(for: note))
-                                .onTapGesture { open(note) }
-                                .contextMenu {
-                                    Button {
-                                        renameText = note.displayName
-                                        renamingNote = note
-                                    } label: {
-                                        Label("Rename", systemImage: "pencil")
-                                    }
-                                    ShareLink(item: store.markdownExportURL(for: note)) {
-                                        Label("Export", systemImage: "square.and.arrow.up")
-                                    }
-                                    Button(role: .destructive) {
-                                        store.deleteNote(note)
-                                    } label: {
-                                        Label("Delete", systemImage: "trash")
-                                    }
-                                }
+                            NoteCardCell(
+                                note: note,
+                                preview: store.preview(for: note),
+                                exportURL: { store.markdownExportURL(for: note) },
+                                onOpen: { open(note) },
+                                onRename: { beginRename(note) },
+                                onDelete: { store.deleteNote(note) }
+                            )
                         }
                     }
                     .padding(.horizontal, 16)
@@ -262,7 +257,12 @@ struct NoteLibraryView: View {
             .searchable(text: $searchText, prompt: "Search Notes")
             #endif
             .navigationDestination(item: $selectedNote) { note in
-                EditorView(store: store, note: note, isNew: note.id == newNoteID)
+                EditorView(
+                    store: store,
+                    note: note,
+                    isNew: note.id == newNoteID,
+                    onRequestRename: { beginRename(note) }
+                )
             }
             .onChange(of: scenePhase) { _, phase in
                 // Pick up notes added or removed outside the app.
@@ -455,6 +455,69 @@ struct SettingsView: View {
 }
 
 // MARK: - Note Card
+
+/// A library card plus its visible actions: a ⋯ menu always shown on iOS and
+/// revealed on hover on macOS. The right-click / long-press context menu stays
+/// as a secondary path.
+private struct NoteCardCell: View {
+    let note: NoteFile
+    let preview: String
+    /// Deferred: menu content is only built when the menu opens, so the export
+    /// copy is not created for every card on every refresh.
+    let exportURL: () -> URL
+    let onOpen: () -> Void
+    let onRename: () -> Void
+    let onDelete: () -> Void
+
+    #if os(macOS)
+    @State private var isHovering = false
+    #endif
+
+    private var menuVisible: Bool {
+        #if os(macOS)
+        return isHovering
+        #else
+        return true
+        #endif
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        Button(action: onRename) {
+            Label("Rename", systemImage: "pencil")
+        }
+        ShareLink(item: exportURL()) {
+            Label("Export", systemImage: "square.and.arrow.up")
+        }
+        Button(role: .destructive, action: onDelete) {
+            Label("Delete", systemImage: "trash")
+        }
+    }
+
+    var body: some View {
+        NoteCard(note: note, preview: preview)
+            .onTapGesture(perform: onOpen)
+            .overlay(alignment: .topTrailing) {
+                Menu {
+                    actions
+                } label: {
+                    Image(systemName: "ellipsis.circle.fill")
+                        .symbolRenderingMode(.hierarchical)
+                        .foregroundStyle(.secondary)
+                        .padding(8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .opacity(menuVisible ? 1 : 0)
+                .accessibilityLabel("Note Actions")
+            }
+            #if os(macOS)
+            .onHover { isHovering = $0 }
+            #endif
+            .contextMenu { actions }
+    }
+}
 
 struct NoteCard: View {
     let note: NoteFile
