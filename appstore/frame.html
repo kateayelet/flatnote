@@ -48,7 +48,7 @@
     const radius = Math.round((+q.get('radius') || 150) * (devW / 1320)) + pad;
     document.body.insertAdjacentHTML('beforeend', `
       <div class="text" style="margin-top:${Math.round(150 * S)}px; max-width:${Math.round(W * 0.86)}px">
-        <h1 style="font-size:${Math.round(118 * S)}px">${q.get('h1')}</h1>
+        <h1 style="font-size:${Math.round((+q.get('h1s') || 118) * S)}px">${q.get('h1')}</h1>
         <div class="sub" style="font-size:${Math.round(52 * S)}px; margin-top:${Math.round(40 * S)}px">${q.get('sub') || ''}</div>
       </div>
       <div class="device" style="width:${devW}px; margin-top:${Math.round(100 * S)}px;
