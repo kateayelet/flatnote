@@ -16,6 +16,10 @@ struct NoteLibraryView: View {
     @State private var showingFilePicker = false
     @State private var renamingNote: NoteFile?
     @State private var renameText = ""
+    /// nil = All notes; otherwise the name of the real directory being viewed.
+    @State private var folderFilter: String?
+    @State private var showingNewFolder = false
+    @State private var newFolderText = ""
     /// Files handed to us before storage finished resolving; replayed once
     /// the store is ready so an at-launch open cannot race into the wrong
     /// storage location.
@@ -110,7 +114,8 @@ struct NoteLibraryView: View {
         // note never litters the library.
         NSDocumentController.shared.newDocument(nil)
         #else
-        if let note = store.createBlankNote() {
+        // A note started while viewing a folder belongs to that folder.
+        if let note = store.createBlankNote(in: folderFilter) {
             newNoteID = note.id
             selectedNote = note
         }
@@ -182,11 +187,58 @@ struct NoteLibraryView: View {
     }
 
     private var filteredNotes: [NoteFile] {
-        if searchText.isEmpty { return store.notes }
-        return store.notes.filter {
+        var visible = store.notes
+        if let folderFilter {
+            visible = visible.filter { $0.folder == folderFilter }
+        }
+        if searchText.isEmpty { return visible }
+        return visible.filter {
             $0.name.localizedCaseInsensitiveContains(searchText) ||
             store.readContent(of: $0).localizedCaseInsensitiveContains(searchText)
         }
+    }
+
+    /// The filter chip row: All plus one chip per real directory, and the
+    /// affordance to make a new one. Hidden while searching.
+    @ViewBuilder
+    private var folderChips: some View {
+        if searchText.isEmpty, !store.folders.isEmpty || folderFilter != nil {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    folderChip(label: "All", value: nil)
+                    ForEach(store.folders, id: \.self) { folder in
+                        folderChip(label: folder, value: folder)
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private func folderChip(label: String, value: String?) -> some View {
+        let selected = folderFilter == value
+        return Button {
+            folderFilter = value
+        } label: {
+            Text(label)
+                .font(.subheadline.weight(selected ? .semibold : .regular))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                // Color.primary, not the hierarchical .primary style: the
+                // foregroundStyle below would re-resolve the latter to the
+                // background color and the selected pill would vanish.
+                .background(selected ? AnyShapeStyle(Color.primary) : AnyShapeStyle(.quaternary.opacity(0.5)),
+                            in: Capsule())
+                .foregroundStyle(selected ? AnyShapeStyle(.background) : AnyShapeStyle(Color.primary))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func createFolderAndFilter() {
+        guard let created = store.createFolder(newFolderText) else { return }
+        newFolderText = ""
+        folderFilter = created
     }
 
     private let columns = [
@@ -205,30 +257,46 @@ struct NoteLibraryView: View {
                         Button("New Note") { createAndOpenNote() }
                             .buttonStyle(.borderedProminent)
                     }
-                } else if filteredNotes.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
                 } else {
                     ScrollView {
                     #if os(iOS)
                     externalRecentsSection
                     #endif
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(filteredNotes) { note in
-                            NoteCardCell(
-                                note: note,
-                                preview: store.preview(for: note),
-                                isPinned: store.isPinned(note),
-                                exportURL: { store.markdownExportURL(for: note) },
-                                onOpen: { open(note) },
-                                onRename: { beginRename(note) },
-                                onTogglePin: { store.togglePin(note) },
-                                onDelete: { store.deleteNote(note) }
-                            )
+                    folderChips
+                    if filteredNotes.isEmpty {
+                        if searchText.isEmpty {
+                            ContentUnavailableView {
+                                Label("Empty Folder", systemImage: "folder")
+                            } description: {
+                                Text("Notes you move or create here will appear.")
+                            }
+                            .padding(.top, 40)
+                        } else {
+                            ContentUnavailableView.search(text: searchText)
+                                .padding(.top, 40)
                         }
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(filteredNotes) { note in
+                                NoteCardCell(
+                                    note: note,
+                                    preview: store.preview(for: note),
+                                    isPinned: store.isPinned(note),
+                                    folders: store.folders,
+                                    showsFolder: folderFilter == nil,
+                                    exportURL: { store.markdownExportURL(for: note) },
+                                    onOpen: { open(note) },
+                                    onRename: { beginRename(note) },
+                                    onTogglePin: { store.togglePin(note) },
+                                    onMove: { store.moveNote(note, toFolder: $0) },
+                                    onDelete: { store.deleteNote(note) }
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .padding(.bottom, 16)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, 8)
-                    .padding(.bottom, 16)
                     }
                 }
             }
@@ -343,11 +411,17 @@ struct NoteLibraryView: View {
                                 Text(order.label).tag(order)
                             }
                         }
+                        Divider()
+                        Button {
+                            showingNewFolder = true
+                        } label: {
+                            Label("New Folder", systemImage: "folder.badge.plus")
+                        }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")
                     }
                     .tint(.primary)
-                    .accessibilityLabel("Sort Notes")
+                    .accessibilityLabel("Sort and Organize")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { createAndOpenNote() } label: {
@@ -355,6 +429,13 @@ struct NoteLibraryView: View {
                     }
                     .tint(.primary)
                 }
+            }
+            .alert("New Folder", isPresented: $showingNewFolder) {
+                TextField("name", text: $newFolderText)
+                Button("Create") { createFolderAndFilter() }
+                Button("Cancel", role: .cancel) { newFolderText = "" }
+            } message: {
+                Text("A real folder in your library. Notes you move into it move on disk.")
             }
             .alert("Rename Note", isPresented: Binding(
                 get: { renamingNote != nil },
@@ -554,12 +635,16 @@ private struct NoteCardCell: View {
     let note: NoteFile
     let preview: String
     let isPinned: Bool
+    let folders: [String]
+    /// Show the note's folder on the card (the All view; folder views know).
+    let showsFolder: Bool
     /// Deferred: menu content is only built when the menu opens, so the export
     /// copy is not created for every card on every refresh.
     let exportURL: () -> URL
     let onOpen: () -> Void
     let onRename: () -> Void
     let onTogglePin: () -> Void
+    let onMove: (String?) -> Void
     let onDelete: () -> Void
 
     #if os(macOS)
@@ -582,6 +667,18 @@ private struct NoteCardCell: View {
         Button(action: onRename) {
             Label("Rename", systemImage: "pencil")
         }
+        if !folders.isEmpty || note.folder != nil {
+            Menu {
+                if note.folder != nil {
+                    Button("Notes") { onMove(nil) }
+                }
+                ForEach(folders.filter { $0 != note.folder }, id: \.self) { folder in
+                    Button(folder) { onMove(folder) }
+                }
+            } label: {
+                Label("Move to Folder", systemImage: "folder")
+            }
+        }
         ShareLink(item: exportURL()) {
             Label("Export", systemImage: "square.and.arrow.up")
         }
@@ -591,7 +688,8 @@ private struct NoteCardCell: View {
     }
 
     var body: some View {
-        NoteCard(note: note, preview: preview, isPinned: isPinned)
+        NoteCard(note: note, preview: preview, isPinned: isPinned,
+                 folderTag: showsFolder ? note.folder : nil)
             .onTapGesture(perform: onOpen)
             .overlay(alignment: .topTrailing) {
                 Menu {
@@ -619,6 +717,8 @@ struct NoteCard: View {
     let note: NoteFile
     let preview: String
     var isPinned: Bool = false
+    /// Folder name shown on the card in the All view.
+    var folderTag: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -636,10 +736,19 @@ struct NoteCard: View {
 
             Spacer(minLength: 0)
 
-            HStack {
+            HStack(spacing: 4) {
                 Text(note.modifiedDate.formatted(date: .abbreviated, time: .omitted))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+                if let folderTag {
+                    Image(systemName: "folder")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                    Text(folderTag)
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
                 Spacer(minLength: 0)
                 if isPinned {
                     Image(systemName: "pin.fill")

@@ -24,6 +24,14 @@ struct NoteFile: Identifiable, Hashable {
     var name: String
     var modifiedDate: Date
     var createdDate: Date = .distantPast
+    /// The top-level library folder holding this note, nil for the root.
+    /// Folders are real directories on disk — never a hidden database.
+    var folder: String? = nil
+
+    /// Stable identity within the library, used for pin state.
+    var relativePath: String {
+        folder.map { "\($0)/\(name)" } ?? name
+    }
 
     var url: URL { id }
 
@@ -45,6 +53,10 @@ struct NoteFile: Identifiable, Hashable {
 @Observable
 class NoteStore {
     var notes: [NoteFile] = []
+
+    /// Top-level subdirectories of the library, sorted. Each is a real folder
+    /// on disk; the filter chips in the library map straight onto these.
+    var folders: [String] = []
 
     /// Set when a file operation fails so the UI can surface it. Cleared by the view on dismiss.
     var lastError: String?
@@ -241,29 +253,107 @@ class NoteStore {
     // MARK: - Notes API
 
     func loadNotes() {
-        guard let contents = try? FileManager.default.contentsOfDirectory(
+        let fm = FileManager.default
+        guard let contents = try? fm.contentsOfDirectory(
             at: storageURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey],
-            options: []
+            includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey, .isDirectoryKey],
+            options: [.skipsHiddenFiles]
         ) else {
             notes = []
+            folders = []
             return
         }
-        notes = contents
-            .compactMap { url -> NoteFile? in
-                let resolved = Self.resolveICloudPlaceholder(url)
-                guard ["md", "markdown", "txt"].contains(resolved.pathExtension.lowercased()) else { return nil }
-                if resolved != url {
-                    // Not-yet-downloaded iCloud item: pull it for the next load.
-                    try? FileManager.default.startDownloadingUbiquitousItem(at: resolved)
+
+        var found: [NoteFile] = []
+        var dirs: [String] = []
+        for url in contents {
+            var isDir: ObjCBool = false
+            fm.fileExists(atPath: url.path, isDirectory: &isDir)
+            if isDir.boolValue {
+                let name = url.lastPathComponent
+                guard name != ".Trash" else { continue }
+                dirs.append(name)
+                // Notes anywhere inside the folder belong to it; deeper
+                // nesting still shows up rather than silently vanishing.
+                if let sub = fm.enumerator(at: url, includingPropertiesForKeys:
+                    [.contentModificationDateKey, .creationDateKey],
+                    options: [.skipsHiddenFiles]) {
+                    for case let fileURL as URL in sub {
+                        if let note = Self.noteFile(at: fileURL, folder: name) {
+                            found.append(note)
+                        }
+                    }
                 }
-                let attrs = try? FileManager.default.attributesOfItem(atPath: resolved.path)
-                let modified = attrs?[.modificationDate] as? Date ?? Date()
-                let created = attrs?[.creationDate] as? Date ?? modified
-                return NoteFile(id: resolved, name: resolved.lastPathComponent,
-                                modifiedDate: modified, createdDate: created)
+            } else if let note = Self.noteFile(at: url, folder: nil) {
+                found.append(note)
             }
+        }
+        folders = dirs.sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+        notes = found
         sortNotes()
+    }
+
+    /// Builds a NoteFile from a URL if it is a markdown-family file,
+    /// resolving iCloud placeholders along the way.
+    private static func noteFile(at url: URL, folder: String?) -> NoteFile? {
+        let resolved = resolveICloudPlaceholder(url)
+        guard ["md", "markdown", "txt"].contains(resolved.pathExtension.lowercased()) else { return nil }
+        if resolved != url {
+            // Not-yet-downloaded iCloud item: pull it for the next load.
+            try? FileManager.default.startDownloadingUbiquitousItem(at: resolved)
+        }
+        let attrs = try? FileManager.default.attributesOfItem(atPath: resolved.path)
+        let modified = attrs?[.modificationDate] as? Date ?? Date()
+        let created = attrs?[.creationDate] as? Date ?? modified
+        return NoteFile(id: resolved, name: resolved.lastPathComponent,
+                        modifiedDate: modified, createdDate: created, folder: folder)
+    }
+
+    // MARK: - Folders
+
+    /// Creates a real directory in the library. Returns the cleaned folder
+    /// name, or nil if the name is unusable or the directory cannot be made.
+    @discardableResult
+    func createFolder(_ name: String) -> String? {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+            .replacingOccurrences(of: "/", with: "-")
+        guard !trimmed.isEmpty, trimmed != ".Trash" else { return nil }
+        let url = storageURL.appendingPathComponent(trimmed, isDirectory: true)
+        if !FileManager.default.fileExists(atPath: url.path) {
+            do {
+                try FileManager.default.createDirectory(at: url, withIntermediateDirectories: false)
+            } catch {
+                lastError = "Could not create the folder \"\(trimmed)\"."
+                return nil
+            }
+        }
+        loadNotes()
+        return trimmed
+    }
+
+    /// Moves a note into a library folder (nil = the root). The .md file
+    /// really moves on disk.
+    @discardableResult
+    func moveNote(_ note: NoteFile, toFolder folder: String?) -> NoteFile? {
+        guard folder != note.folder else { return note }
+        let dir = folder.map { storageURL.appendingPathComponent($0, isDirectory: true) } ?? storageURL
+        let dest = uniqueDestination(for: note.name, in: dir)
+        do {
+            try coordinatedMove(from: note.url, to: dest)
+        } catch {
+            lastError = "Could not move \"\(note.displayName)\". \(error.localizedDescription)"
+            return nil
+        }
+        let oldPath = note.relativePath
+        let moved = NoteFile(id: dest, name: dest.lastPathComponent,
+                             modifiedDate: note.modifiedDate, createdDate: note.createdDate,
+                             folder: folder)
+        if let idx = notes.firstIndex(where: { $0.id == note.id }) {
+            notes[idx] = moved
+        }
+        pinFollowsRename(from: oldPath, to: moved.relativePath)
+        sortNotes()
+        return moved
     }
 
     // MARK: - Sorting & pins
@@ -274,7 +364,7 @@ class NoteStore {
 
     static func sorted(_ notes: [NoteFile], by order: NoteSortOrder, pinned: Set<String>) -> [NoteFile] {
         notes.sorted { a, b in
-            let aPinned = pinned.contains(a.name), bPinned = pinned.contains(b.name)
+            let aPinned = pinned.contains(a.relativePath), bPinned = pinned.contains(b.relativePath)
             if aPinned != bPinned { return aPinned }
             switch order {
             case .modified: return a.modifiedDate > b.modifiedDate
@@ -285,14 +375,14 @@ class NoteStore {
     }
 
     func isPinned(_ note: NoteFile) -> Bool {
-        pinnedNames.contains(note.name)
+        pinnedNames.contains(note.relativePath)
     }
 
     func togglePin(_ note: NoteFile) {
-        if pinnedNames.contains(note.name) {
-            pinnedNames.remove(note.name)
+        if pinnedNames.contains(note.relativePath) {
+            pinnedNames.remove(note.relativePath)
         } else {
-            pinnedNames.insert(note.name)
+            pinnedNames.insert(note.relativePath)
         }
         persistPins()
         sortNotes()
@@ -310,10 +400,12 @@ class NoteStore {
     }
 
     /// Creates an empty, uniquely-named note to open immediately. Its real
-    /// title is derived from the first line when the editor closes.
-    func createBlankNote() -> NoteFile? {
-        let name = uniqueDestination(for: "New Note.md").lastPathComponent
-        return createNote(name: name)
+    /// title is derived from the first line when the editor closes. Created
+    /// inside `folder` when the library is filtered to one.
+    func createBlankNote(in folder: String? = nil) -> NoteFile? {
+        let dir = folder.map { storageURL.appendingPathComponent($0, isDirectory: true) } ?? documentsURL
+        let name = uniqueDestination(for: "New Note.md", in: dir).lastPathComponent
+        return createNote(name: name, folder: folder)
     }
 
     /// Derives a filename-safe title from the first non-empty line of content.
@@ -339,30 +431,33 @@ class NoteStore {
         let title = Self.titleFromContent(content)
         guard !title.isEmpty, title != note.displayName else { return note }
         let ext = note.url.pathExtension.isEmpty ? "md" : note.url.pathExtension
-        let dest = uniqueDestination(for: "\(title).\(ext)")
+        let dest = uniqueDestination(for: "\(title).\(ext)",
+                                     in: note.url.deletingLastPathComponent())
         do {
             try coordinatedMove(from: note.url, to: dest)
         } catch {
             return note
         }
         let renamed = NoteFile(id: dest, name: dest.lastPathComponent,
-                               modifiedDate: Date(), createdDate: note.createdDate)
+                               modifiedDate: Date(), createdDate: note.createdDate,
+                               folder: note.folder)
         if let idx = notes.firstIndex(where: { $0.id == note.id }) {
             notes[idx] = renamed
         }
-        pinFollowsRename(from: note.name, to: renamed.name)
+        pinFollowsRename(from: note.relativePath, to: renamed.relativePath)
         return renamed
     }
 
-    func createNote(name: String) -> NoteFile? {
-        let url = documentsURL.appendingPathComponent(name)
+    func createNote(name: String, folder: String? = nil) -> NoteFile? {
+        let dir = folder.map { storageURL.appendingPathComponent($0, isDirectory: true) } ?? documentsURL
+        let url = dir.appendingPathComponent(name)
         do {
             try coordinatedWrite("", to: url)
         } catch {
             lastError = "Could not create \"\(name)\". \(error.localizedDescription)"
             return nil
         }
-        let note = NoteFile(id: url, name: name, modifiedDate: Date(), createdDate: Date())
+        let note = NoteFile(id: url, name: name, modifiedDate: Date(), createdDate: Date(), folder: folder)
         notes.insert(note, at: 0)
         return note
     }
@@ -388,7 +483,8 @@ class NoteStore {
         let lower = trimmed.lowercased()
         let hasKnownExtension = ["md", "markdown", "txt"].contains { lower.hasSuffix("." + $0) }
         let finalName = hasKnownExtension ? trimmed : trimmed + ".md"
-        let dest = documentsURL.appendingPathComponent(finalName)
+        // Rename in place: a note in a folder stays in its folder.
+        let dest = note.url.deletingLastPathComponent().appendingPathComponent(finalName)
 
         if dest == note.url { return note }
         guard !FileManager.default.fileExists(atPath: dest.path) else {
@@ -406,11 +502,12 @@ class NoteStore {
         let attrs = try? FileManager.default.attributesOfItem(atPath: dest.path)
         let modified = attrs?[.modificationDate] as? Date ?? note.modifiedDate
         let renamed = NoteFile(id: dest, name: finalName,
-                               modifiedDate: modified, createdDate: note.createdDate)
+                               modifiedDate: modified, createdDate: note.createdDate,
+                               folder: note.folder)
         if let idx = notes.firstIndex(where: { $0.id == note.id }) {
             notes[idx] = renamed
         }
-        pinFollowsRename(from: note.name, to: finalName)
+        pinFollowsRename(from: note.relativePath, to: renamed.relativePath)
         return renamed
     }
 
@@ -424,7 +521,7 @@ class NoteStore {
         do {
             try coordinatedDelete(note.url)
             notes.removeAll { $0.id == note.id }
-            if pinnedNames.remove(note.name) != nil { persistPins() }
+            if pinnedNames.remove(note.relativePath) != nil { persistPins() }
         } catch {
             lastError = "Could not delete \"\(note.displayName)\". \(error.localizedDescription)"
         }
@@ -711,13 +808,17 @@ class NoteStore {
     /// Returns a destination URL that does not collide with an existing note,
     /// appending " 2", " 3", ... before the extension as needed.
     func uniqueDestination(for filename: String) -> URL {
+        uniqueDestination(for: filename, in: documentsURL)
+    }
+
+    func uniqueDestination(for filename: String, in directory: URL) -> URL {
         let ext = (filename as NSString).pathExtension
         let base = (filename as NSString).deletingPathExtension
-        var candidate = documentsURL.appendingPathComponent(filename)
+        var candidate = directory.appendingPathComponent(filename)
         var counter = 2
         while FileManager.default.fileExists(atPath: candidate.path) {
             let newName = ext.isEmpty ? "\(base) \(counter)" : "\(base) \(counter).\(ext)"
-            candidate = documentsURL.appendingPathComponent(newName)
+            candidate = directory.appendingPathComponent(newName)
             counter += 1
         }
         return candidate
