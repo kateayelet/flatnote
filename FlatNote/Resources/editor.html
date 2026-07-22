@@ -185,7 +185,11 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         lastEditType = null;
         render();
         updatePlaceholder();
-        notifyChange();
+        // No notifyChange here: this content just CAME from the host. Echoing
+        // it back would rewrite the file on every open, dirtying mtimes (and
+        // iCloud sync) for a note the user never touched. The outline still
+        // needs to be told about the new document.
+        notifyOutline();
     };
     window.getContent = function() { return markdownSource; };
 
@@ -406,6 +410,13 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
 
         if (t === 'historyUndo') { e.preventDefault(); window.undo(); return; }
         if (t === 'historyRedo') { e.preventDefault(); window.redo(); return; }
+
+        // The system selection menu's B/I/U. Bold and italic map to Markdown;
+        // underline is not Markdown, so it is swallowed rather than letting
+        // execCommand write styling the file cannot hold.
+        if (t === 'formatBold') { e.preventDefault(); window.fmtBold(); return; }
+        if (t === 'formatItalic') { e.preventDefault(); window.fmtItalic(); return; }
+        if (t === 'formatUnderline') { e.preventDefault(); return; }
 
         if (t === 'insertParagraph' || t === 'insertLineBreak') {
             e.preventDefault();

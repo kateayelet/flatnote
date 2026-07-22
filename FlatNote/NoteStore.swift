@@ -725,9 +725,36 @@ class NoteStore {
 
     /// The single source for the welcome note's contents, used both for the
     /// first-launch seed and for the "Restore Welcome Note" action so the two
-    /// can never drift. Each line shows the markdown to type and what it becomes.
+    /// can never drift. Structure per the approved 1.1 mock: thesis intro,
+    /// core principles, a live Get Started checklist.
     static let welcomeMarkdown = """
     # Welcome to FlatNote
+
+    Markdown notes. No account.
+
+    There is no account because there is nothing an account would do for you. Your notes are plain text files in your iCloud or in a folder on this device. Save them, export them, open them anywhere. They are yours.
+
+    ## Core principles
+
+    - Every note is a plain .md file, readable in any editor, on any device, today or in twenty years.
+    - No account. Nothing to sign up for, nothing to lapse, nothing between you and your writing.
+    - Nothing about you leaves your devices. No ads, no tracking, no analytics.
+    - Delete is honest. Deleted notes go to the trash, not into a void.
+
+    ## Get started
+
+    - [ ] Check this box. Tap it, and FlatNote writes the change back into this file as plain text.
+    - [ ] Write a note. The pencil button starts one; the first line becomes its title.
+    - [ ] Type `**stars**` around a word to make it bold. Formatting appears as you type.
+    - [ ] Open the note called Markdown in one minute to see everything else.
+    - [ ] Delete this note when you are done with it. It is an ordinary file, like every note here.
+
+    Deleted it and want it back? Settings can restore it anytime.
+    """
+
+    /// The seeded sample note: the whole syntax, shown rather than described.
+    static let sampleMarkdown = """
+    # Markdown in one minute
 
     FlatNote formats your writing as you type. Type the plain markdown on the left, and it becomes the styled text on the right.
 
@@ -780,12 +807,6 @@ class NoteStore {
     That is the point. Some formats lock your words inside a single program. Miss an update, switch devices, or let a subscription lapse, and your own writing can become hard to reach. Plain text never does. It belongs to you, not to an app.
 
     FlatNote just makes plain text pleasant to write. The freedom was always yours.
-
-    ---
-
-    Your notes live as plain .md files in your own Files, under FlatNote. Start a new note whenever you are ready.
-
-    Deleted this note by accident? You can bring it back anytime from Settings.
     """
 
     /// Persisted so the welcome note is seeded only once, ever. After that,
@@ -797,6 +818,19 @@ class NoteStore {
     }
 
     private func createWelcomeNote() {
+        // The sample rides along on the same first-launch seed. Both are
+        // ordinary deletable files; deleting them is the first lesson that
+        // the user owns the files. Sample first, welcome second: the library
+        // sorts by modified date, and Welcome belongs on top.
+        let sampleURL = documentsURL.appendingPathComponent("Markdown in one minute.md")
+        try? coordinatedWrite(Self.sampleMarkdown, to: sampleURL)
+        // Both writes land within the same second, which makes the
+        // modified-date order unstable; backdate the sample so Welcome
+        // reliably sorts on top.
+        try? FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(-60)],
+            ofItemAtPath: sampleURL.path
+        )
         let url = documentsURL.appendingPathComponent("Welcome to FlatNote.md")
         try? coordinatedWrite(Self.welcomeMarkdown, to: url)
         loadNotes()
