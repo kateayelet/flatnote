@@ -216,9 +216,11 @@ struct NoteLibraryView: View {
                             NoteCardCell(
                                 note: note,
                                 preview: store.preview(for: note),
+                                isPinned: store.isPinned(note),
                                 exportURL: { store.markdownExportURL(for: note) },
                                 onOpen: { open(note) },
                                 onRename: { beginRename(note) },
+                                onTogglePin: { store.togglePin(note) },
                                 onDelete: { store.deleteNote(note) }
                             )
                         }
@@ -325,6 +327,22 @@ struct NoteLibraryView: View {
                     .tint(.primary)
                 }
                 #endif
+                ToolbarItem(placement: .primaryAction) {
+                    Menu {
+                        Picker("Sort Notes By", selection: Binding(
+                            get: { store.sortOrder },
+                            set: { store.sortOrder = $0 }
+                        )) {
+                            ForEach(NoteSortOrder.allCases) { order in
+                                Text(order.label).tag(order)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .tint(.primary)
+                    .accessibilityLabel("Sort Notes")
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { createAndOpenNote() } label: {
                         Image(systemName: "square.and.pencil")
@@ -462,11 +480,13 @@ struct SettingsView: View {
 private struct NoteCardCell: View {
     let note: NoteFile
     let preview: String
+    let isPinned: Bool
     /// Deferred: menu content is only built when the menu opens, so the export
     /// copy is not created for every card on every refresh.
     let exportURL: () -> URL
     let onOpen: () -> Void
     let onRename: () -> Void
+    let onTogglePin: () -> Void
     let onDelete: () -> Void
 
     #if os(macOS)
@@ -483,6 +503,9 @@ private struct NoteCardCell: View {
 
     @ViewBuilder
     private var actions: some View {
+        Button(action: onTogglePin) {
+            Label(isPinned ? "Unpin" : "Pin", systemImage: isPinned ? "pin.slash" : "pin")
+        }
         Button(action: onRename) {
             Label("Rename", systemImage: "pencil")
         }
@@ -495,7 +518,7 @@ private struct NoteCardCell: View {
     }
 
     var body: some View {
-        NoteCard(note: note, preview: preview)
+        NoteCard(note: note, preview: preview, isPinned: isPinned)
             .onTapGesture(perform: onOpen)
             .overlay(alignment: .topTrailing) {
                 Menu {
@@ -522,6 +545,7 @@ private struct NoteCardCell: View {
 struct NoteCard: View {
     let note: NoteFile
     let preview: String
+    var isPinned: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -539,9 +563,18 @@ struct NoteCard: View {
 
             Spacer(minLength: 0)
 
-            Text(note.modifiedDate.formatted(date: .abbreviated, time: .omitted))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
+            HStack {
+                Text(note.modifiedDate.formatted(date: .abbreviated, time: .omitted))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                Spacer(minLength: 0)
+                if isPinned {
+                    Image(systemName: "pin.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .accessibilityLabel("Pinned")
+                }
+            }
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)

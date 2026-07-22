@@ -4,10 +4,26 @@ import Observation
 import AppKit
 #endif
 
+/// How the library orders its notes. Persisted, so the choice survives launches.
+enum NoteSortOrder: String, CaseIterable, Identifiable {
+    case modified, created, title
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .modified: return "Last Edited"
+        case .created: return "Date Created"
+        case .title: return "Title"
+        }
+    }
+}
+
 struct NoteFile: Identifiable, Hashable {
     let id: URL
     var name: String
     var modifiedDate: Date
+    var createdDate: Date = .distantPast
 
     var url: URL { id }
 
@@ -40,6 +56,26 @@ class NoteStore {
     /// handed to the app before this must wait, or they land in the wrong
     /// storage and become invisible to the library.
     var isReady = false
+
+    private static let sortOrderKey = "librarySortOrder"
+    private static let pinnedNamesKey = "pinnedNoteNames"
+
+    /// Library sort order. Setting it re-sorts and persists.
+    var sortOrder: NoteSortOrder = NoteSortOrder(
+        rawValue: UserDefaults.standard.string(forKey: NoteStore.sortOrderKey) ?? ""
+    ) ?? .modified {
+        didSet {
+            UserDefaults.standard.set(sortOrder.rawValue, forKey: Self.sortOrderKey)
+            sortNotes()
+        }
+    }
+
+    /// Pinned notes sort to the top. Keyed by filename (not full URL) so pins
+    /// survive the local-to-iCloud storage migration; kept out of the .md files
+    /// themselves — pin state is app state, the note stays plain Markdown.
+    private(set) var pinnedNames: Set<String> = Set(
+        UserDefaults.standard.stringArray(forKey: NoteStore.pinnedNamesKey) ?? []
+    )
 
     /// The iCloud container identifier. Must match the app's iCloud capability.
     private let ubiquityContainerID = "iCloud.com.aftrveil.flatnote"
@@ -207,7 +243,7 @@ class NoteStore {
     func loadNotes() {
         guard let contents = try? FileManager.default.contentsOfDirectory(
             at: storageURL,
-            includingPropertiesForKeys: [.contentModificationDateKey],
+            includingPropertiesForKeys: [.contentModificationDateKey, .creationDateKey],
             options: []
         ) else {
             notes = []
@@ -223,9 +259,54 @@ class NoteStore {
                 }
                 let attrs = try? FileManager.default.attributesOfItem(atPath: resolved.path)
                 let modified = attrs?[.modificationDate] as? Date ?? Date()
-                return NoteFile(id: resolved, name: resolved.lastPathComponent, modifiedDate: modified)
+                let created = attrs?[.creationDate] as? Date ?? modified
+                return NoteFile(id: resolved, name: resolved.lastPathComponent,
+                                modifiedDate: modified, createdDate: created)
             }
-            .sorted { $0.modifiedDate > $1.modifiedDate }
+        sortNotes()
+    }
+
+    // MARK: - Sorting & pins
+
+    private func sortNotes() {
+        notes = Self.sorted(notes, by: sortOrder, pinned: pinnedNames)
+    }
+
+    static func sorted(_ notes: [NoteFile], by order: NoteSortOrder, pinned: Set<String>) -> [NoteFile] {
+        notes.sorted { a, b in
+            let aPinned = pinned.contains(a.name), bPinned = pinned.contains(b.name)
+            if aPinned != bPinned { return aPinned }
+            switch order {
+            case .modified: return a.modifiedDate > b.modifiedDate
+            case .created: return a.createdDate > b.createdDate
+            case .title: return a.displayName.localizedStandardCompare(b.displayName) == .orderedAscending
+            }
+        }
+    }
+
+    func isPinned(_ note: NoteFile) -> Bool {
+        pinnedNames.contains(note.name)
+    }
+
+    func togglePin(_ note: NoteFile) {
+        if pinnedNames.contains(note.name) {
+            pinnedNames.remove(note.name)
+        } else {
+            pinnedNames.insert(note.name)
+        }
+        persistPins()
+        sortNotes()
+    }
+
+    private func persistPins() {
+        UserDefaults.standard.set(Array(pinnedNames).sorted(), forKey: Self.pinnedNamesKey)
+    }
+
+    /// Pins are keyed by filename, so a rename must carry the pin along.
+    private func pinFollowsRename(from oldName: String, to newName: String) {
+        guard pinnedNames.remove(oldName) != nil else { return }
+        pinnedNames.insert(newName)
+        persistPins()
     }
 
     /// Creates an empty, uniquely-named note to open immediately. Its real
@@ -264,10 +345,12 @@ class NoteStore {
         } catch {
             return note
         }
-        let renamed = NoteFile(id: dest, name: dest.lastPathComponent, modifiedDate: Date())
+        let renamed = NoteFile(id: dest, name: dest.lastPathComponent,
+                               modifiedDate: Date(), createdDate: note.createdDate)
         if let idx = notes.firstIndex(where: { $0.id == note.id }) {
             notes[idx] = renamed
         }
+        pinFollowsRename(from: note.name, to: renamed.name)
         return renamed
     }
 
@@ -279,7 +362,7 @@ class NoteStore {
             lastError = "Could not create \"\(name)\". \(error.localizedDescription)"
             return nil
         }
-        let note = NoteFile(id: url, name: name, modifiedDate: Date())
+        let note = NoteFile(id: url, name: name, modifiedDate: Date(), createdDate: Date())
         notes.insert(note, at: 0)
         return note
     }
@@ -322,10 +405,12 @@ class NoteStore {
 
         let attrs = try? FileManager.default.attributesOfItem(atPath: dest.path)
         let modified = attrs?[.modificationDate] as? Date ?? note.modifiedDate
-        let renamed = NoteFile(id: dest, name: finalName, modifiedDate: modified)
+        let renamed = NoteFile(id: dest, name: finalName,
+                               modifiedDate: modified, createdDate: note.createdDate)
         if let idx = notes.firstIndex(where: { $0.id == note.id }) {
             notes[idx] = renamed
         }
+        pinFollowsRename(from: note.name, to: finalName)
         return renamed
     }
 
@@ -339,6 +424,7 @@ class NoteStore {
         do {
             try coordinatedDelete(note.url)
             notes.removeAll { $0.id == note.id }
+            if pinnedNames.remove(note.name) != nil { persistPins() }
         } catch {
             lastError = "Could not delete \"\(note.displayName)\". \(error.localizedDescription)"
         }
