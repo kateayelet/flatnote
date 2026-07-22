@@ -56,16 +56,7 @@ struct FlatNoteApp: App {
             NoteLibraryView()
         }
         .defaultSize(width: 900, height: 640)
-        .commands {
-            AboutCommands()
-        }
 
-        // A real About window, not the stock version panel: the same
-        // "Well, what is FlatNote?" card the other platforms show.
-        Window("About FlatNote", id: "about") {
-            AboutView()
-        }
-        .windowResizability(.contentSize)
 
         // Every note opens as a real document, edited in place wherever the
         // file lives — the library folder, iCloud Drive, or any folder the
@@ -88,22 +79,17 @@ struct FlatNoteApp: App {
 }
 
 #if os(macOS)
-struct AboutCommands: Commands {
-    @Environment(\.openWindow) private var openWindow
-
-    var body: some Commands {
-        CommandGroup(replacing: .appInfo) {
-            Button("About FlatNote") { openWindow(id: "about") }
-        }
-    }
-}
-
 /// Edit > Undo / Redo forwarded into the key window's web editor, which owns
 /// the undo stack (it intercepts all input, so WebKit's native undo is empty).
 struct FlatNoteEditorCommands: Commands {
     @FocusedValue(\.activeEditor) private var editor: EditorController?
 
     var body: some Commands {
+        // NOTE (2026-07-21): SwiftUI here honors File/Edit-area CommandGroups
+        // only. Replacing or inserting in the app menu (.appInfo) and Help is
+        // silently ignored, and a second Commands struct in the same
+        // @CommandsBuilder block is dropped. The What-is-FlatNote card is
+        // reachable on Mac via Settings > Philosophy instead.
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") { editor?.undo() }
                 .keyboardShortcut("z", modifiers: .command)

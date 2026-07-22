@@ -221,7 +221,7 @@ struct NoteLibraryView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.vertical, 4)
+                .padding(.vertical, 2)
             }
         }
     }
@@ -240,6 +240,11 @@ struct NoteLibraryView: View {
                 // background color and the selected pill would vanish.
                 .background(selected ? AnyShapeStyle(Color.primary) : AnyShapeStyle(.quaternary.opacity(0.5)),
                             in: Capsule())
+                .overlay {
+                    if !selected {
+                        Capsule().strokeBorder(.separator.opacity(0.7), lineWidth: 1)
+                    }
+                }
                 .foregroundStyle(selected ? AnyShapeStyle(.background) : AnyShapeStyle(Color.primary))
         }
         .buttonStyle(.plain)
@@ -430,14 +435,18 @@ struct NoteLibraryView: View {
                             Label("New Folder", systemImage: "folder.badge.plus")
                         }
                     } label: {
-                        Image(systemName: "arrow.up.arrow.down")
+                        // Decreasing stacked lines: the standard sort glyph.
+                        // Up/down arrows read as a transfer/sync icon.
+                        Image(systemName: "line.3.horizontal.decrease")
                     }
                     .tint(.primary)
                     .accessibilityLabel("Sort and Organize")
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button { createAndOpenNote() } label: {
+                        // The primary action: visibly weightier than Sort.
                         Image(systemName: "square.and.pencil")
+                            .font(.body.weight(.semibold))
                     }
                     .tint(.primary)
                 }
@@ -513,26 +522,68 @@ struct NoteLibraryView: View {
 
 /// The "Well, what is FlatNote?" card. Same copy everywhere it appears:
 /// Settings row, Home Screen quick action, and the Mac About window.
+/// Copy locked by Kate 2026-07-21.
 struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
 
+    private var versionLine: String {
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "FlatNote \(version) (Build \(build))"
+    }
+
+    @ViewBuilder
+    private var copyBlock: some View {
+        Text("FlatNote is a place to write things down.")
+        Text("Every note is an ordinary Markdown file: formatting you can see, written with characters you can type. Your notes live in iCloud or in a local folder on this device. FlatNote stores no separate copy.")
+        Text("There is no account because there is nothing an account would do for you. FlatNote collects nothing: no ads, no tracking, no analytics.")
+        Text("If you ever stop using FlatNote, your notes remain ordinary files, readable in any editor, on any device.")
+    }
+
+    @ViewBuilder
+    private var creditBlock: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(versionLine)
+            Text("Made by aftrveil.")
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+    }
+
     var body: some View {
+        #if os(macOS)
+        // A real About window: content-hugging height, dismissed by the
+        // window's own controls — no confirmation-style button.
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Spacer()
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 64, height: 64)
+                Spacer()
+            }
+            Text("Well, what is FlatNote?")
+                .font(.title2.bold())
+            copyBlock
+                .font(.body)
+            creditBlock
+        }
+        .padding(24)
+        .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
+        #else
         ScrollView {
-            VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 16) {
                 Text("Well, what is FlatNote?")
                     .font(.title2.bold())
 
-                Group {
-                    Text("FlatNote is a place to write things down.")
-                    Text("Every note is a plain text file written in Markdown: formatting you can see, in characters you can type. Your notes live in your iCloud or in a local folder on this device. FlatNote holds none of them.")
-                    Text("There is no account, because there is nothing an account would do for you. No ads, no tracking, no analytics. Nothing about you leaves your devices.")
-                    Text("If you ever stop using FlatNote, your notes remain: ordinary files, readable in any editor, on any device.")
+                VStack(alignment: .leading, spacing: 30) {
+                    copyBlock
                 }
                 .font(.body)
 
-                Text("Made by aftrveil.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+                creditBlock
+                    .padding(.top, 4)
 
                 Button {
                     dismiss()
@@ -546,9 +597,19 @@ struct AboutView: View {
             }
             .padding(24)
         }
-        #if os(macOS)
-        .frame(width: 420, height: 480)
-        #else
+        .overlay(alignment: .topTrailing) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+            .accessibilityLabel("Close")
+        }
         .presentationDetents([.large, .medium])
         #endif
     }
@@ -635,6 +696,11 @@ struct SettingsView: View {
                 AboutView()
             }
         }
+        #if os(macOS)
+        // Without an explicit frame the List collapses to zero height inside
+        // a macOS sheet.
+        .frame(minWidth: 440, minHeight: 480)
+        #endif
     }
 }
 
@@ -750,7 +816,7 @@ private struct PreviewLineView: View {
                     .foregroundStyle(.secondary)
                 Text(inline(String(task.2)))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.primary.opacity(0.75))
                     .lineLimit(1)
             }
         } else if let bullet = line.firstMatch(of: /^[-*+]\s+(.*)$/) {
@@ -760,18 +826,18 @@ private struct PreviewLineView: View {
                     .foregroundStyle(.secondary)
                 Text(inline(String(bullet.1)))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Color.primary.opacity(0.75))
                     .lineLimit(1)
             }
         } else if let quote = line.firstMatch(of: /^>\s?(.*)$/) {
             Text(inline(String(quote.1)))
                 .font(.caption.italic())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.primary.opacity(0.75))
                 .lineLimit(1)
         } else {
             Text(inline(line))
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Color.primary.opacity(0.75))
                 .lineLimit(2)
         }
     }
@@ -787,6 +853,13 @@ struct NoteCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            // Title first: the primary scanning position. Any image sits
+            // beneath it.
+            Text(note.displayName)
+                .font(.headline)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+
             if let thumbnail, let image = PlatformImage(contentsOfFile: thumbnail.path) {
                 Image(platformImage: image)
                     .resizable()
@@ -795,11 +868,6 @@ struct NoteCard: View {
                     .frame(maxWidth: .infinity)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-
-            Text(note.displayName)
-                .font(.headline)
-                .foregroundStyle(.primary)
-                .lineLimit(2)
 
             if !previewLines.isEmpty {
                 VStack(alignment: .leading, spacing: 3) {
@@ -814,21 +882,21 @@ struct NoteCard: View {
             HStack(spacing: 4) {
                 Text(note.modifiedDate.formatted(date: .abbreviated, time: .omitted))
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(.secondary)
                 if let folderTag {
                     Image(systemName: "folder")
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                     Text(folderTag)
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                         .lineLimit(1)
                 }
                 Spacer(minLength: 0)
                 if isPinned {
                     Image(systemName: "pin.fill")
                         .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(.secondary)
                         .accessibilityLabel("Pinned")
                 }
             }

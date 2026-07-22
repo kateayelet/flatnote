@@ -13,6 +13,9 @@ final class EditorController {
     weak var webView: WKWebView?
     var matchCount = 0
     var currentMatch = 0
+    /// iOS: the nav bar title stays hidden while the note's own leading
+    /// heading is on screen, so the title never shows twice.
+    var navTitleVisible = true
     /// Called when the editor closes, to flush and title the note.
     var onClose: (() -> Void)?
 
@@ -201,8 +204,10 @@ struct EditorView: View {
             #if os(iOS)
             .ignoresSafeArea(.container, edges: .bottom)
             .navigationBarTitleDisplayMode(.inline)
-            #endif
+            .navigationTitle(controller.navTitleVisible ? note.displayName : "")
+            #else
             .navigationTitle(note.displayName)
+            #endif
             #if os(iOS)
             .toolbarTitleMenu {
                 if let onRequestRename {
@@ -581,6 +586,10 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
             } else {
                 store.lastError = "Could not save the pasted image."
             }
+        }
+
+        if action == "navTitle", let visible = body["visible"] as? Bool {
+            controller.navTitleVisible = visible
         }
     }
 

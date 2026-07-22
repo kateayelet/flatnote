@@ -872,12 +872,12 @@ class NoteStore {
 
     - Every note is a plain .md file, readable in any editor, on any device, today or in twenty years.
     - No account. Nothing to sign up for, nothing to lapse, nothing between you and your writing.
-    - Nothing about you leaves your devices. No ads, no tracking, no analytics.
-    - Delete is honest. Deleted notes go to the trash, not into a void.
+    - Nothing is sent to us. No ads, no tracking, no analytics. Your notes stay in the folder you choose, including iCloud if you use it.
+    - Delete is honest. Deleted notes go to Trash, where they can still be recovered.
 
     ## Get started
 
-    - [ ] Check this box. Tap it, and FlatNote writes the change back into this file as plain text.
+    - [ ] Check this box. Tap it, and FlatNote writes the change to a real .md file.
     - [ ] Write a note. The pencil button starts one; the first line becomes its title.
     - [ ] Type `**stars**` around a word to make it bold. Formatting appears as you type.
     - [ ] Open the note called Markdown in one minute to see everything else.
