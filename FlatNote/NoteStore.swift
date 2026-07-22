@@ -271,7 +271,9 @@ class NoteStore {
             fm.fileExists(atPath: url.path, isDirectory: &isDir)
             if isDir.boolValue {
                 let name = url.lastPathComponent
-                guard name != ".Trash" else { continue }
+                // "assets" is where pasted images land (LIFE-116), not a
+                // notes folder — a root note's images must not become a chip.
+                guard name != ".Trash", name != "assets" else { continue }
                 dirs.append(name)
                 // Notes anywhere inside the folder belong to it; deeper
                 // nesting still shows up rather than silently vanishing.
