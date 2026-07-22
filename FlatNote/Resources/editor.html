@@ -116,8 +116,9 @@ html, body {
 }
 .task-cb-vis.checked { background: var(--accent); border-color: var(--accent); }
 .task-cb-vis.checked::after {
-    content: "\2713"; color: var(--bg); font-size: 12px;
-    position: absolute; top: -3px; left: 2px;
+    content: "\2713"; color: var(--bg); font-size: 14px; font-weight: 700;
+    position: absolute; inset: 0; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
 }
 .line.active-line .task-cb-vis { display: none; }
 
