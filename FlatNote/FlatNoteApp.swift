@@ -1,7 +1,50 @@
 import SwiftUI
 
+extension Notification.Name {
+    /// Posted when the user asks "What is FlatNote?" from the Home Screen
+    /// quick action; the library presents the About sheet.
+    static let flatnoteShowAbout = Notification.Name("flatnoteShowAbout")
+}
+
+#if os(iOS)
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// Set when the app cold-launches from the quick action; consumed by the
+    /// library once the UI exists (the notification would fire before anyone
+    /// is listening).
+    static var pendingShortcutType: String?
+
+    func application(_ application: UIApplication,
+                     configurationForConnecting connectingSceneSession: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        if let item = options.shortcutItem {
+            Self.pendingShortcutType = item.type
+        }
+        let config = UISceneConfiguration(name: nil, sessionRole: connectingSceneSession.role)
+        config.delegateClass = SceneDelegate.self
+        return config
+    }
+}
+
+final class SceneDelegate: NSObject, UIWindowSceneDelegate {
+    func windowScene(_ windowScene: UIWindowScene,
+                     performActionFor shortcutItem: UIApplicationShortcutItem,
+                     completionHandler: @escaping (Bool) -> Void) {
+        if shortcutItem.type == "com.aftrveil.flatnote.about" {
+            NotificationCenter.default.post(name: .flatnoteShowAbout, object: nil)
+            completionHandler(true)
+        } else {
+            completionHandler(false)
+        }
+    }
+}
+#endif
+
 @main
 struct FlatNoteApp: App {
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+    #endif
+
     var body: some Scene {
         #if os(macOS)
         // The library shelf: browse, search, and manage the iCloud notes.
@@ -13,6 +56,16 @@ struct FlatNoteApp: App {
             NoteLibraryView()
         }
         .defaultSize(width: 900, height: 640)
+        .commands {
+            AboutCommands()
+        }
+
+        // A real About window, not the stock version panel: the same
+        // "Well, what is FlatNote?" card the other platforms show.
+        Window("About FlatNote", id: "about") {
+            AboutView()
+        }
+        .windowResizability(.contentSize)
 
         // Every note opens as a real document, edited in place wherever the
         // file lives — the library folder, iCloud Drive, or any folder the
@@ -35,6 +88,16 @@ struct FlatNoteApp: App {
 }
 
 #if os(macOS)
+struct AboutCommands: Commands {
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About FlatNote") { openWindow(id: "about") }
+        }
+    }
+}
+
 /// Edit > Undo / Redo forwarded into the key window's web editor, which owns
 /// the undo stack (it intercepts all input, so WebKit's native undo is empty).
 struct FlatNoteEditorCommands: Commands {

@@ -85,6 +85,17 @@
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<true/>
 	</dict>
+	<key>UIApplicationShortcutItems</key>
+	<array>
+		<dict>
+			<key>UIApplicationShortcutItemType</key>
+			<string>com.aftrveil.flatnote.about</string>
+			<key>UIApplicationShortcutItemTitle</key>
+			<string>What is FlatNote?</string>
+			<key>UIApplicationShortcutItemIconSymbolName</key>
+			<string>questionmark.circle</string>
+		</dict>
+	</array>
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>UILaunchScreen</key>

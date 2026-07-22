@@ -12,6 +12,7 @@ struct NoteLibraryView: View {
     @State private var newNoteID: URL?
     @State private var searchText = ""
     @State private var showingSettings = false
+    @State private var showingAbout = false
     @State private var showingFilePicker = false
     @State private var renamingNote: NoteFile?
     @State private var renameText = ""
@@ -247,6 +248,11 @@ struct NoteLibraryView: View {
                         }
                     }
                 }
+                if ProcessInfo.processInfo.environment["FLATNOTE_SHOW_ABOUT"] == "1" {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        showingAbout = true
+                    }
+                }
             }
             #endif
             #if os(iOS)
@@ -378,6 +384,22 @@ struct NoteLibraryView: View {
                     onRestoreWelcome: restoreWelcomeNote
                 )
             }
+            .sheet(isPresented: $showingAbout) {
+                AboutView()
+            }
+            #if os(iOS)
+            .onReceive(NotificationCenter.default.publisher(for: .flatnoteShowAbout)) { _ in
+                showingAbout = true
+            }
+            .onAppear {
+                // Cold launch from the Home Screen quick action: the shortcut
+                // arrived before any view was listening.
+                if AppDelegate.pendingShortcutType == "com.aftrveil.flatnote.about" {
+                    AppDelegate.pendingShortcutType = nil
+                    showingAbout = true
+                }
+            }
+            #endif
             .alert(
                 "Something Went Wrong",
                 isPresented: Binding(
@@ -394,6 +416,51 @@ struct NoteLibraryView: View {
     }
 }
 
+// MARK: - About
+
+/// The "Well, what is FlatNote?" card. Same copy everywhere it appears:
+/// Settings row, Home Screen quick action, and the Mac About window.
+struct AboutView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("Well, what is FlatNote?")
+                    .font(.title2.bold())
+
+                Group {
+                    Text("FlatNote is a place to write things down.")
+                    Text("Every note is a plain text file written in Markdown: formatting you can see, in characters you can type. Your notes live in your iCloud or in a local folder on this device. FlatNote holds none of them.")
+                    Text("There is no account, because there is nothing an account would do for you. No ads, no tracking, no analytics. Nothing about you leaves your devices.")
+                    Text("If you ever stop using FlatNote, your notes remain: ordinary files, readable in any editor, on any device.")
+                }
+                .font(.body)
+
+                Text("Made by aftrveil.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Understood")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.primary)
+                .padding(.top, 6)
+            }
+            .padding(24)
+        }
+        #if os(macOS)
+        .frame(width: 420, height: 480)
+        #else
+        .presentationDetents([.large, .medium])
+        #endif
+    }
+}
+
 // MARK: - Settings
 
 struct SettingsView: View {
@@ -402,6 +469,7 @@ struct SettingsView: View {
     let iCloudAvailable: Bool
     let onRestoreWelcome: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @State private var showingAbout = false
 
     private var appVersion: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -414,13 +482,13 @@ struct SettingsView: View {
             List {
                 Section {
                     LabeledContent("Notes", value: "\(noteCount)")
-                    LabeledContent("Sync", value: iCloudAvailable ? "iCloud" : "This device only")
+                    LabeledContent("Storage", value: iCloudAvailable ? "iCloud" : "This device")
                 } header: {
                     Text("Library")
                 } footer: {
                     Text(iCloudAvailable
-                        ? "Your notes sync across your devices through iCloud, signed in with your Apple ID."
-                        : "Notes are stored on this device. Sign in to iCloud to sync them across your devices.")
+                        ? "Your notes are files in your iCloud, available on every device signed in with your Apple ID."
+                        : "Your notes are files stored on this device. Sign in to iCloud to have them on all your devices.")
                 }
 
                 if !noteURLs.isEmpty {
@@ -448,11 +516,13 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    Text("FlatNote keeps everything as plain .md files. They are yours: portable, future-proof, and readable in any app. No proprietary formats, no lock-in.")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
+                    Button {
+                        showingAbout = true
+                    } label: {
+                        Label("What is FlatNote?", systemImage: "questionmark.circle")
+                    }
                 } header: {
-                    Text("About")
+                    Text("Philosophy")
                 }
 
                 Section {
@@ -467,6 +537,9 @@ struct SettingsView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
+            }
+            .sheet(isPresented: $showingAbout) {
+                AboutView()
             }
         }
     }
