@@ -173,6 +173,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     <button data-fmt="bullet" aria-label="Bullet list">&#8226;</button>
     <button data-fmt="task" aria-label="Checkbox">&#9745;</button>
     <button data-fmt="link" aria-label="Link">&#128279;</button>
+    <button data-fmt="attach" aria-label="Attach image">&#128206;</button>
 </div>
 <script src="render.js"></script>
 <script>
@@ -465,7 +466,13 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     // Called back by the host once the pasted image is on disk. The image
     // syntax only renders as a block on its own line, so surround it with
     // newlines rather than splicing it into the current line's text.
+    let attachReturnPos = null;
     window.insertPastedImage = function(relPath) {
+        if (!getSelectionRange() && attachReturnPos) {
+            editor.focus();
+            setCursor(attachReturnPos.line, attachReturnPos.offset);
+        }
+        attachReturnPos = null;
         handlePaste('\n![](' + relPath + ')\n');
     };
 
@@ -905,18 +912,38 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
 
     const fmtActions = {
         bold: window.fmtBold, italic: window.fmtItalic, heading: window.fmtHeading,
-        bullet: window.fmtBullet, task: window.fmtTask, link: window.fmtLink
+        bullet: window.fmtBullet, task: window.fmtTask, link: window.fmtLink,
+        // The native picker steals focus, so remember where the image goes
+        // before asking for one; insertPastedImage restores it.
+        attach: () => {
+            const sr = getSelectionRange();
+            attachReturnPos = sr ? { line: sr.startLine, offset: sr.startOffset } : null;
+            postToHost({ action: 'attachImage' });
+        }
     };
 
     const toolbar = document.getElementById('toolbar');
     toolbar.querySelectorAll('button').forEach(btn => {
         // Keep the editor's selection/focus when a toolbar button is tapped.
-        btn.addEventListener('mousedown', e => e.preventDefault());
-        btn.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
-        btn.addEventListener('click', e => {
-            e.preventDefault();
+        // Preventing touchstart's default also suppresses the synthesized
+        // click on iOS, so the action must run from touchend there; click
+        // stays for pointer devices (the Mac web view).
+        const run = () => {
             const action = fmtActions[btn.dataset.fmt];
             if (action) action();
+        };
+        let ranFromTouch = false;
+        btn.addEventListener('mousedown', e => e.preventDefault());
+        btn.addEventListener('touchstart', e => e.preventDefault(), { passive: false });
+        btn.addEventListener('touchend', e => {
+            e.preventDefault();
+            ranFromTouch = true;
+            run();
+        }, { passive: false });
+        btn.addEventListener('click', e => {
+            e.preventDefault();
+            if (ranFromTouch) { ranFromTouch = false; return; }
+            run();
         });
     });
 

@@ -2,6 +2,7 @@ import SwiftUI
 import WebKit
 #if canImport(UIKit)
 import UIKit
+import PhotosUI
 #endif
 #if canImport(AppKit)
 import AppKit
@@ -504,12 +505,7 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
         webView.scrollView.keyboardDismissMode = .interactive
         #else
         webView.onPasteImage = { [weak self] data, mime in
-            guard let self else { return }
-            if let rel = AssetSchemeHandler.saveImageAsset(data: data, mime: mime, noteURL: self.note.url) {
-                self.webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
-            } else {
-                self.store.lastError = "Could not save the pasted image."
-            }
+            self?.attachImage(data: data, mime: mime)
         }
         #endif
 
@@ -581,17 +577,65 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
            let b64 = body["data"] as? String,
            let data = Data(base64Encoded: b64) {
             let mime = body["mime"] as? String ?? "image/png"
-            if let rel = AssetSchemeHandler.saveImageAsset(data: data, mime: mime, noteURL: note.url) {
-                webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
-            } else {
-                store.lastError = "Could not save the pasted image."
-            }
+            attachImage(data: data, mime: mime)
+        }
+
+        if action == "attachImage" {
+            presentImageAttachPicker()
         }
 
         if action == "navTitle", let visible = body["visible"] as? Bool {
             controller.navTitleVisible = visible
         }
     }
+
+    // MARK: Attaching images
+
+    /// Saves image bytes through the same pipeline as paste (a real file in
+    /// assets/ next to the note) and hands the editor its markdown reference.
+    private func attachImage(data: Data, mime: String) {
+        if let rel = AssetSchemeHandler.saveImageAsset(data: data, mime: mime, noteURL: note.url) {
+            webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
+        } else {
+            store.lastError = "Could not save the image."
+        }
+    }
+
+    #if os(iOS)
+    /// The toolbar paperclip: the system photo picker, which needs no
+    /// photo-library permission because it runs out of process.
+    private func presentImageAttachPicker() {
+        var config = PHPickerConfiguration(photoLibrary: .shared())
+        config.filter = .images
+        config.selectionLimit = 1
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = self
+        var top = webView?.window?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        top?.present(picker, animated: true)
+    }
+    #elseif os(macOS)
+    private func presentImageAttachPicker() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.image]
+        panel.allowsMultipleSelection = false
+        panel.begin { [weak self] response in
+            guard let self, response == .OK, let url = panel.url,
+                  let data = try? Data(contentsOf: url) else { return }
+            self.attachImage(data: data, mime: Self.mime(forExtension: url.pathExtension))
+        }
+    }
+
+    private static func mime(forExtension ext: String) -> String {
+        switch ext.lowercased() {
+        case "jpg", "jpeg": return "image/jpeg"
+        case "gif": return "image/gif"
+        case "heic": return "image/heic"
+        case "webp": return "image/webp"
+        default: return "image/png"
+        }
+    }
+    #endif
 
     // MARK: Closing
 
@@ -636,3 +680,25 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
             .replacingOccurrences(of: "\r", with: "\\r")
     }
 }
+
+#if os(iOS)
+extension EditorCoordinator: PHPickerViewControllerDelegate {
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        picker.dismiss(animated: true)
+        guard let provider = results.first?.itemProvider else { return }
+        // Formats the asset store names correctly; anything else is written
+        // as PNG-labelled data only as a last resort.
+        let known = ["public.png": "image/png", "public.jpeg": "image/jpeg",
+                     "com.compuserve.gif": "image/gif", "public.heic": "image/heic",
+                     "org.webmproject.webp": "image/webp"]
+        guard let typeId = provider.registeredTypeIdentifiers.first(where: { known[$0] != nil })
+            ?? provider.registeredTypeIdentifiers.first else { return }
+        provider.loadDataRepresentation(forTypeIdentifier: typeId) { [weak self] data, _ in
+            guard let data else { return }
+            DispatchQueue.main.async {
+                self?.attachImage(data: data, mime: known[typeId] ?? "image/png")
+            }
+        }
+    }
+}
+#endif
