@@ -301,7 +301,7 @@ struct NoteLibraryView: View {
                                     isPinned: store.isPinned(note),
                                     folders: store.folders,
                                     showsFolder: folderFilter == nil,
-                                    exportURL: { store.markdownExportURL(for: note) },
+                                    exportURL: { store.exportItemURL(for: note) },
                                     onOpen: { open(note) },
                                     onRename: { beginRename(note) },
                                     onTogglePin: { store.togglePin(note) },
@@ -481,7 +481,7 @@ struct NoteLibraryView: View {
             .sheet(isPresented: $showingSettings) {
                 SettingsView(
                     noteCount: store.notes.count,
-                    noteURLs: store.markdownExportURLs(),
+                    exportZipURL: store.libraryExportZipURL(),
                     iCloudAvailable: store.iCloudAvailable,
                     onRestoreWelcome: restoreWelcomeNote
                 )
@@ -619,7 +619,7 @@ struct AboutView: View {
 
 struct SettingsView: View {
     let noteCount: Int
-    let noteURLs: [URL]
+    let exportZipURL: URL?
     let iCloudAvailable: Bool
     let onRestoreWelcome: () -> Void
     @Environment(\.dismiss) private var dismiss
@@ -645,15 +645,15 @@ struct SettingsView: View {
                         : "Your notes are files stored on this device. Sign in to iCloud to have them on all your devices.")
                 }
 
-                if !noteURLs.isEmpty {
+                if let exportZipURL {
                     Section {
-                        ShareLink(items: noteURLs) {
+                        ShareLink(item: exportZipURL) {
                             Label("Export All Notes", systemImage: "square.and.arrow.up")
                         }
                     } header: {
                         Text("Export")
                     } footer: {
-                        Text("Share or save every note as .md files. Your notes are also available in the Files app under FlatNote.")
+                        Text("Share or save your whole library as one zip: every note as a .md file, with folders and images included. Your notes are also available in the Files app under FlatNote.")
                     }
                 }
 

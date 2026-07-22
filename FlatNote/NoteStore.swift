@@ -821,23 +821,95 @@ class NoteStore {
         return dest
     }
 
-    /// Markdown export URLs for every note. All notes are written as deduped
-    /// .md files in a temp folder so the batch is uniform and collision-free.
-    func markdownExportURLs() -> [URL] {
-        let dir = exportTempDir()
+    /// Relative image paths a note references ("assets/x/img.png"), deduped.
+    /// Remote and absolute references are left alone: only files that live
+    /// with the note travel with it.
+    private static func referencedImagePaths(in content: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: #"!\[[^\]]*\]\(([^)\s]+)\)"#) else { return [] }
+        let range = NSRange(content.startIndex..., in: content)
+        var seen = Set<String>()
+        var paths: [String] = []
+        for match in regex.matches(in: content, range: range) {
+            guard let r = Range(match.range(at: 1), in: content) else { continue }
+            let path = String(content[r])
+            guard !path.contains("://"), !path.hasPrefix("/"), !path.contains(".."),
+                  seen.insert(path).inserted else { continue }
+            paths.append(path)
+        }
+        return paths
+    }
+
+    /// What a note's export should be: the plain .md when it stands alone, or
+    /// a zip of the note plus its images when it references any, so pictures
+    /// survive the trip.
+    func exportItemURL(for note: NoteFile) -> URL {
+        let content = readContent(of: note)
+        let base = note.url.deletingLastPathComponent()
+        let fm = FileManager.default
+        let refs = Self.referencedImagePaths(in: content).filter {
+            fm.fileExists(atPath: base.appendingPathComponent($0).path)
+        }
+        guard !refs.isEmpty else { return markdownExportURL(for: note) }
+
+        let stage = exportTempDir().appendingPathComponent(note.displayName, isDirectory: true)
+        try? fm.removeItem(at: stage)
+        try? fm.createDirectory(at: stage, withIntermediateDirectories: true)
+        try? content.write(to: stage.appendingPathComponent(note.displayName + ".md"),
+                           atomically: true, encoding: .utf8)
+        for rel in refs {
+            let dest = stage.appendingPathComponent(rel)
+            try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? fm.copyItem(at: base.appendingPathComponent(rel), to: dest)
+        }
+        return Self.zipped(stage) ?? stage
+    }
+
+    /// One zip of the whole library: every note as a .md file, folders
+    /// preserved, referenced images included. Ordinary files all the way down.
+    func libraryExportZipURL() -> URL? {
+        guard !notes.isEmpty else { return nil }
+        let fm = FileManager.default
+        let stage = exportTempDir().appendingPathComponent("FlatNote Library", isDirectory: true)
+        try? fm.removeItem(at: stage)
+        try? fm.createDirectory(at: stage, withIntermediateDirectories: true)
         var used = Set<String>()
-        return notes.map { note in
+        for note in notes {
+            let dir = note.folder.map { stage.appendingPathComponent($0, isDirectory: true) } ?? stage
+            try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
             var name = note.displayName + ".md"
             var counter = 2
-            while used.contains(name.lowercased()) {
+            while used.contains("\(note.folder ?? "")/\(name.lowercased())") {
                 name = "\(note.displayName) \(counter).md"
                 counter += 1
             }
-            used.insert(name.lowercased())
-            let dest = dir.appendingPathComponent(name)
-            try? readContent(of: note).write(to: dest, atomically: true, encoding: .utf8)
-            return dest
+            used.insert("\(note.folder ?? "")/\(name.lowercased())")
+            let content = readContent(of: note)
+            try? content.write(to: dir.appendingPathComponent(name), atomically: true, encoding: .utf8)
+            let base = note.url.deletingLastPathComponent()
+            for rel in Self.referencedImagePaths(in: content) {
+                let src = base.appendingPathComponent(rel)
+                let dest = dir.appendingPathComponent(rel)
+                guard fm.fileExists(atPath: src.path), !fm.fileExists(atPath: dest.path) else { continue }
+                try? fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try? fm.copyItem(at: src, to: dest)
+            }
         }
+        return Self.zipped(stage)
+    }
+
+    /// Folder to zip via the file coordinator's uploading reader, the same
+    /// mechanism Files uses when a folder is shared. No archive library needed.
+    private static func zipped(_ directory: URL) -> URL? {
+        var result: URL?
+        var coordError: NSError?
+        NSFileCoordinator().coordinate(readingItemAt: directory, options: .forUploading,
+                                       error: &coordError) { zip in
+            let dest = directory.deletingLastPathComponent()
+                .appendingPathComponent(directory.lastPathComponent + ".zip")
+            try? FileManager.default.removeItem(at: dest)
+            if (try? FileManager.default.copyItem(at: zip, to: dest)) != nil { result = dest }
+        }
+        return result
     }
 
     /// Returns a destination URL that does not collide with an existing note,
