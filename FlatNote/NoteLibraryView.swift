@@ -3,6 +3,16 @@ import UniformTypeIdentifiers
 import Combine
 #if os(macOS)
 import AppKit
+typealias PlatformImage = NSImage
+extension Image {
+    init(platformImage: NSImage) { self.init(nsImage: platformImage) }
+}
+#else
+import UIKit
+typealias PlatformImage = UIImage
+extension Image {
+    init(platformImage: UIImage) { self.init(uiImage: platformImage) }
+}
 #endif
 
 struct NoteLibraryView: View {
@@ -252,10 +262,11 @@ struct NoteLibraryView: View {
                     ContentUnavailableView {
                         Label("No Notes", systemImage: "note.text")
                     } description: {
-                        Text("Your notes will appear here. Create one to get started.")
+                        Text("Your thoughts deserve a quiet space.")
                     } actions: {
                         Button("New Note") { createAndOpenNote() }
                             .buttonStyle(.borderedProminent)
+                            .tint(.primary)
                     }
                 } else {
                     ScrollView {
@@ -280,7 +291,8 @@ struct NoteLibraryView: View {
                             ForEach(filteredNotes) { note in
                                 NoteCardCell(
                                     note: note,
-                                    preview: store.preview(for: note),
+                                    previewLines: store.previewLines(for: note),
+                                    thumbnail: store.thumbnailURL(for: note),
                                     isPinned: store.isPinned(note),
                                     folders: store.folders,
                                     showsFolder: folderFilter == nil,
@@ -633,7 +645,8 @@ struct SettingsView: View {
 /// as a secondary path.
 private struct NoteCardCell: View {
     let note: NoteFile
-    let preview: String
+    let previewLines: [String]
+    let thumbnail: URL?
     let isPinned: Bool
     let folders: [String]
     /// Show the note's folder on the card (the All view; folder views know).
@@ -688,8 +701,8 @@ private struct NoteCardCell: View {
     }
 
     var body: some View {
-        NoteCard(note: note, preview: preview, isPinned: isPinned,
-                 folderTag: showsFolder ? note.folder : nil)
+        NoteCard(note: note, previewLines: previewLines, thumbnail: thumbnail,
+                 isPinned: isPinned, folderTag: showsFolder ? note.folder : nil)
             .onTapGesture(perform: onOpen)
             .overlay(alignment: .topTrailing) {
                 Menu {
@@ -713,25 +726,87 @@ private struct NoteCardCell: View {
     }
 }
 
+/// One preview line, rendered rather than described: headings come back
+/// semibold, checkboxes as boxes, bullets as bullets, inline Markdown styled.
+private struct PreviewLineView: View {
+    let line: String
+
+    private func inline(_ text: String) -> AttributedString {
+        (try? AttributedString(markdown: text,
+            options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(text)
+    }
+
+    var body: some View {
+        if let heading = line.firstMatch(of: /^#{1,6}\s+(.*)$/) {
+            Text(inline(String(heading.1)))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+        } else if let task = line.firstMatch(of: /^[-*+]\s+\[([ xX])\]\s+(.*)$/) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Image(systemName: task.1 == " " ? "square" : "checkmark.square.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Text(inline(String(task.2)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } else if let bullet = line.firstMatch(of: /^[-*+]\s+(.*)$/) {
+            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("•")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(inline(String(bullet.1)))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        } else if let quote = line.firstMatch(of: /^>\s?(.*)$/) {
+            Text(inline(String(quote.1)))
+                .font(.caption.italic())
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
+        } else {
+            Text(inline(line))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+        }
+    }
+}
+
 struct NoteCard: View {
     let note: NoteFile
-    let preview: String
+    let previewLines: [String]
+    var thumbnail: URL? = nil
     var isPinned: Bool = false
     /// Folder name shown on the card in the All view.
     var folderTag: String? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
+            if let thumbnail, let image = PlatformImage(contentsOfFile: thumbnail.path) {
+                Image(platformImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: 72)
+                    .frame(maxWidth: .infinity)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+            }
+
             Text(note.displayName)
                 .font(.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(2)
 
-            if !preview.isEmpty {
-                Text(preview)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
+            if !previewLines.isEmpty {
+                VStack(alignment: .leading, spacing: 3) {
+                    ForEach(Array(previewLines.enumerated()), id: \.offset) { _, line in
+                        PreviewLineView(line: line)
+                    }
+                }
             }
 
             Spacer(minLength: 0)

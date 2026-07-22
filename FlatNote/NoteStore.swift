@@ -527,6 +527,39 @@ class NoteStore {
         }
     }
 
+    /// The card preview: up to `limit` meaningful lines of the note, skipping
+    /// a leading heading (the card already shows the title). Lines keep their
+    /// Markdown so the card can render them.
+    func previewLines(for note: NoteFile, limit: Int = 6) -> [String] {
+        var lines = readContent(of: note)
+            .components(separatedBy: .newlines)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        if let first = lines.first, first.hasPrefix("#") {
+            lines.removeFirst()
+        }
+        return Array(lines.prefix(limit))
+    }
+
+    /// The first image the note references that exists on disk, for the card
+    /// thumbnail. Relative paths resolve against the note's own directory —
+    /// the same way any other Markdown app would read the file.
+    func thumbnailURL(for note: NoteFile) -> URL? {
+        let content = readContent(of: note)
+        guard let regex = try? NSRegularExpression(pattern: #"!\[[^\]]*\]\(([^)\s]+)\)"#) else { return nil }
+        let range = NSRange(content.startIndex..., in: content)
+        for match in regex.matches(in: content, range: range) {
+            guard let pathRange = Range(match.range(at: 1), in: content) else { continue }
+            let path = String(content[pathRange])
+            guard !path.contains("://") else { continue }
+            let url = path.hasPrefix("/")
+                ? URL(fileURLWithPath: path)
+                : note.url.deletingLastPathComponent().appendingPathComponent(path)
+            if FileManager.default.fileExists(atPath: url.path) { return url }
+        }
+        return nil
+    }
+
     func preview(for note: NoteFile) -> String {
         let content = Self.strippedMarkdown(readContent(of: note))
             .trimmingCharacters(in: .whitespacesAndNewlines)
