@@ -263,7 +263,12 @@ struct NoteLibraryView: View {
     var body: some View {
         NavigationStack {
             Group {
-                if store.notes.isEmpty {
+                if !store.isReady {
+                    // Storage is still resolving (iCloud lookup runs off the
+                    // main thread); claiming "No Notes" here flashes a false
+                    // empty state on every cold launch (LIFE-159).
+                    Color.clear
+                } else if store.notes.isEmpty {
                     ContentUnavailableView {
                         Label("No Notes", systemImage: "note.text")
                     } description: {
