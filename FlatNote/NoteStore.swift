@@ -1019,6 +1019,13 @@ class NoteStore {
 
     > Like this
 
+    ## Callouts
+
+    A quote that starts with `[!note]` becomes a callout. Note, tip, important, warning, and caution each get their own color:
+
+    > [!note] Callouts work in GitHub and Obsidian too.
+    > In apps that do not know them, they are ordinary quotes. Nothing breaks.
+
     ## Why markdown
 
     Your notes are plain text. Every one is a .md file you can open in any editor, on any device, today or in twenty years.

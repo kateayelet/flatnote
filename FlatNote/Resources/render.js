@@ -116,12 +116,18 @@ function renderInline(text) {
 function renderMarkdown(md) {
     const lines = (md || '').split('\n');
     let inFence = false;
+    // GitHub-style callouts: a blockquote whose first line is [!TYPE] colors
+    // the whole quote run. The type carries across consecutive quote lines
+    // and ends at the first non-quote line, so in any other renderer the
+    // callout degrades gracefully to a plain blockquote.
+    let callout = null;
     return lines.map((line, i) => {
         // Code fences
         if (inFence) {
             if (/^```/.test(line)) { inFence = false; return mkDiv(i, 'line-code-fence', esc(line)); }
             return mkDiv(i, 'line-code-block', esc(line));
         }
+        if (line[0] !== '>') callout = null;
         if (/^```/.test(line)) { inFence = true; return mkDiv(i, 'line-code-fence', esc(line)); }
 
         // HR
@@ -134,8 +140,22 @@ function renderMarkdown(md) {
 
         // Blockquote: > text -- full line rendered, > is faded
         const bq = line.match(/^(>\s?)(.*)/);
-        if (bq) return mkDiv(i, 'line-quote',
-            '<span class="mk">' + esc(bq[1]) + '</span>' + renderInline(bq[2]));
+        if (bq) {
+            // The marker alone on its line (GitHub) or with text after it
+            // (Obsidian); both open a callout of that type.
+            const head = bq[2].match(/^\[!(note|tip|important|warning|caution)\](\s.*|\s*)$/i);
+            if (head) {
+                callout = head[1].toLowerCase();
+                return mkDiv(i, 'line-quote line-callout callout-' + callout + ' callout-head',
+                    '<span class="mk">' + esc(bq[1]) + '[!</span>' +
+                    '<span class="callout-label">' + esc(head[1]) + '</span>' +
+                    '<span class="mk">]</span>' + renderInline(head[2]));
+            }
+            if (callout) return mkDiv(i, 'line-quote line-callout callout-' + callout,
+                '<span class="mk">' + esc(bq[1]) + '</span>' + renderInline(bq[2]));
+            return mkDiv(i, 'line-quote',
+                '<span class="mk">' + esc(bq[1]) + '</span>' + renderInline(bq[2]));
+        }
 
         // Image alone on a line: ![alt](src) -- raw text kept (hidden until
         // active) so cursor offsets stay exact; the img is an extra non-text

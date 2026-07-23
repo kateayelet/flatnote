@@ -538,6 +538,40 @@ struct MarkdownRenderTests {
         #expect(html.contains("md-code"))
     }
 
+    @Test func calloutColorsTheWholeQuoteRun() throws {
+        // GitHub-style callouts: > [!NOTE] styles its line and every quote
+        // line after it, ending at the first non-quote line.
+        let render = try makeRenderer()
+        let html = render("> [!NOTE]\n> the aside\nplain\n> a plain quote")
+        #expect(html.contains("callout-note"))
+        #expect(html.contains("callout-head"))
+        #expect(html.contains("callout-label"))
+        // The body line carries the type; the quote after the break does not.
+        let segments = html.components(separatedBy: "<div")
+        #expect(segments.filter { $0.contains("callout-note") }.count == 2)
+        #expect(segments.last?.contains("line-quote") == true)
+        #expect(segments.last?.contains("callout") == false)
+    }
+
+    @Test func unknownCalloutTypeStaysPlainQuote() throws {
+        let render = try makeRenderer()
+        let html = render("> [!BANANA]\n> text")
+        #expect(!html.contains("callout"))
+        #expect(html.contains("line-quote"))
+    }
+
+    @Test func calloutIsCaseInsensitiveAndPreservesSource() throws {
+        let render = try makeRenderer()
+        // Single lines only: textContent() flattens line divs without
+        // newlines, and the source-equality invariant is per line.
+        for md in ["> [!note]", "> [!NOTE]", "> [!Warning] ",
+                   "> [!Note] text on the same line, Obsidian-style"] {
+            let html = render(md)
+            #expect(html.contains("callout-"), "should be a callout: \(md)")
+            #expect(textContent(html) == md, "textContent must equal source for: \(md)")
+        }
+    }
+
     @Test func htmlIsEscaped() throws {
         let render = try makeRenderer()
         let html = render("a < b & c")
