@@ -346,6 +346,27 @@ struct NoteLibraryView: View {
                         showingAbout = true
                     }
                 }
+                // Capture-harness hook: launch with
+                // SIMCTL_CHILD_FLATNOTE_DEMO_OPEN=<display name> to open that
+                // note once the library has loaded it. Used together with
+                // FLATNOTE_DEMO_SCRIPT (see EditorCoordinator) for scripted
+                // screen recordings. Retries because notes load asynchronously.
+                if let demoName = ProcessInfo.processInfo.environment["FLATNOTE_DEMO_OPEN"],
+                   !demoName.isEmpty {
+                    func tryOpenDemoNote(_ attemptsLeft: Int) {
+                        if let note = store.notes.first(where: { $0.displayName == demoName }) {
+                            newNoteID = nil
+                            open(note)
+                        } else if attemptsLeft > 0 {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                tryOpenDemoNote(attemptsLeft - 1)
+                            }
+                        }
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                        tryOpenDemoNote(20)
+                    }
+                }
             }
             #endif
             #if os(iOS)

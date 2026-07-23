@@ -136,7 +136,14 @@ struct DocumentEditorView: View {
     }
 
     private var outlinePane: some View {
-        Group {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("OUTLINE")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .kerning(0.6)
+                .padding(.horizontal, 16)
+                .padding(.top, 12)
+                .padding(.bottom, 6)
             if outline.isEmpty {
                 VStack {
                     Text("No headings")

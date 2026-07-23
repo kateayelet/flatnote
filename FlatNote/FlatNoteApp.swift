@@ -58,6 +58,9 @@ struct FlatNoteApp: App {
             DocumentEditorView(document: file.$document, fileURL: file.fileURL)
         }
         .defaultSize(width: 760, height: 880)
+        // Centered document title above the toolbar row, Typora-style; the
+        // unified style crams the title against the traffic lights instead.
+        .windowToolbarStyle(.expanded)
         .commands {
             FlatNoteEditorCommands()
         }

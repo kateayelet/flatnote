@@ -87,20 +87,26 @@ html, body {
     padding-left: 12px;
     font-style: italic;
 }
-/* GitHub-style callouts: > [!NOTE] etc. colors the whole quote run. Body
-   text stays upright (callouts are asides, not quotations); the label line
+/* GitHub-style callouts: > [!NOTE] etc. colors the whole quote run and
+   tints its background, so consecutive lines read as one box. Body text
+   stays upright (callouts are asides, not quotations); the label line
    takes the type color. */
-.line-callout { font-style: normal; }
+.line-callout {
+    font-style: normal;
+    padding-top: 2px;
+    padding-bottom: 2px;
+    padding-right: 8px;
+}
 .callout-head .callout-label { font-weight: 600; text-transform: capitalize; }
-.callout-note { border-left-color: var(--callout-note); }
+.callout-note { border-left-color: var(--callout-note); background: color-mix(in srgb, var(--callout-note) 7%, transparent); }
 .callout-note .callout-label { color: var(--callout-note); }
-.callout-tip { border-left-color: var(--callout-tip); }
+.callout-tip { border-left-color: var(--callout-tip); background: color-mix(in srgb, var(--callout-tip) 7%, transparent); }
 .callout-tip .callout-label { color: var(--callout-tip); }
-.callout-important { border-left-color: var(--callout-important); }
+.callout-important { border-left-color: var(--callout-important); background: color-mix(in srgb, var(--callout-important) 7%, transparent); }
 .callout-important .callout-label { color: var(--callout-important); }
-.callout-warning { border-left-color: var(--callout-warning); }
+.callout-warning { border-left-color: var(--callout-warning); background: color-mix(in srgb, var(--callout-warning) 7%, transparent); }
 .callout-warning .callout-label { color: var(--callout-warning); }
-.callout-caution { border-left-color: var(--callout-caution); }
+.callout-caution { border-left-color: var(--callout-caution); background: color-mix(in srgb, var(--callout-caution) 7%, transparent); }
 .callout-caution .callout-label { color: var(--callout-caution); }
 .line-code-block {
     font-family: var(--font-mono);
@@ -652,11 +658,13 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         const before = currentLine.slice(0, pos.startOffset);
         const after = currentLine.slice(pos.startOffset);
 
-        // Auto-continue lists
+        // Auto-continue lists and quotes (quotes so multi-line callouts can
+        // be typed straight through; Enter on an empty quote line ends it)
         let prefix = '';
         const taskMatch = currentLine.match(/^([-*])\s+\[([ xX])\]\s/);
         const bulletMatch = currentLine.match(/^([-*+])\s/);
         const orderedMatch = currentLine.match(/^(\d+)\.\s/);
+        const quoteMatch = currentLine.match(/^(>\s?)/);
 
         // If empty list item, remove it
         if (taskMatch && before.match(/^[-*]\s+\[[ xX]\]\s*$/) && after.trim() === '') {
@@ -671,10 +679,15 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
             lines[pos.startLine] = '';
             markdownSource = lines.join('\n');
             render(); setCursor(pos.startLine, 0);
+        } else if (quoteMatch && before.match(/^>\s*$/) && after.trim() === '') {
+            lines[pos.startLine] = '';
+            markdownSource = lines.join('\n');
+            render(); setCursor(pos.startLine, 0);
         } else {
             if (taskMatch) prefix = taskMatch[1] + ' [ ] ';
             else if (bulletMatch && !taskMatch) prefix = bulletMatch[1] + ' ';
             else if (orderedMatch) prefix = (parseInt(orderedMatch[1]) + 1) + '. ';
+            else if (quoteMatch) prefix = quoteMatch[1];
 
             lines.splice(pos.startLine, 1, before, prefix + after);
             markdownSource = lines.join('\n');
