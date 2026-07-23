@@ -47,22 +47,13 @@ struct FlatNoteApp: App {
 
     var body: some Scene {
         #if os(macOS)
-        // The library shelf: browse, search, and manage the iCloud notes.
-        // A single Window scene, so macOS lists it in the Window menu and
-        // reopens it from there after it is closed. No quit-on-close delegate
-        // anymore: with a stock document File menu the app can never be
-        // stranded windowless (App Review Guideline 4).
-        Window("FlatNote", id: "library") {
-            NoteLibraryView()
-        }
-        .defaultSize(width: 900, height: 640)
-
-
         // Every note opens as a real document, edited in place wherever the
         // file lives — the library folder, iCloud Drive, or any folder the
         // user picks. One window per note; File > New / Open / Open Recent /
         // Save As / Rename / Duplicate / Move To / Revert and the Window menu
-        // all come from the system document machinery.
+        // all come from the system document machinery. Declared first so a
+        // fresh launch opens an untitled note, ready to type — the app is an
+        // editor before it is a shelf.
         DocumentGroup(newDocument: MarkdownDocument()) { file in
             DocumentEditorView(document: file.$document, fileURL: file.fileURL)
         }
@@ -70,6 +61,16 @@ struct FlatNoteApp: App {
         .commands {
             FlatNoteEditorCommands()
         }
+
+        // The library shelf: browse, search, and manage the iCloud notes.
+        // A single Window scene, so macOS lists it in the Window menu and
+        // reopens it from there after it is closed. No quit-on-close delegate
+        // anymore: with a stock document File menu the app can never be
+        // stranded windowless (App Review Guideline 4).
+        Window("FlatNote Library", id: "library") {
+            NoteLibraryView()
+        }
+        .defaultSize(width: 900, height: 640)
         #else
         WindowGroup {
             NoteLibraryView()
@@ -83,13 +84,16 @@ struct FlatNoteApp: App {
 /// the undo stack (it intercepts all input, so WebKit's native undo is empty).
 struct FlatNoteEditorCommands: Commands {
     @FocusedValue(\.activeEditor) private var editor: EditorController?
+    @AppStorage("flatnoteOutlineVisible") private var outlineVisible = true
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         // NOTE (2026-07-21): SwiftUI here honors File/Edit-area CommandGroups
         // only. Replacing or inserting in the app menu (.appInfo) and Help is
         // silently ignored, and a second Commands struct in the same
         // @CommandsBuilder block is dropped. The What-is-FlatNote card is
-        // reachable on Mac via Settings > Philosophy instead.
+        // reachable on Mac via Settings > Philosophy instead. CommandMenu
+        // (a custom top-level menu) IS honored.
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") { editor?.undo() }
                 .keyboardShortcut("z", modifiers: .command)
@@ -98,9 +102,67 @@ struct FlatNoteEditorCommands: Commands {
                 .keyboardShortcut("z", modifiers: [.command, .shift])
                 .disabled(editor == nil)
         }
+        CommandGroup(after: .newItem) {
+            Button("Open Library") { openWindow(id: "library") }
+                .keyboardShortcut("l", modifiers: [.command, .shift])
+        }
         CommandGroup(after: .importExport) {
             Button("Export as PDF…") { editor?.exportPDF() }
                 .disabled(editor == nil)
+        }
+        CommandGroup(after: .sidebar) {
+            Toggle("Outline", isOn: $outlineVisible)
+                .keyboardShortcut("1", modifiers: [.command, .control])
+        }
+
+        // The Paragraph and Format menus, sized to the markdown FlatNote
+        // actually renders: no tables, math, or footnotes it cannot show.
+        CommandMenu("Paragraph") {
+            Group {
+            Button("Heading 1") { editor?.format("h1") }
+                .keyboardShortcut("1", modifiers: .command)
+            Button("Heading 2") { editor?.format("h2") }
+                .keyboardShortcut("2", modifiers: .command)
+            Button("Heading 3") { editor?.format("h3") }
+                .keyboardShortcut("3", modifiers: .command)
+            Button("Heading 4") { editor?.format("h4") }
+                .keyboardShortcut("4", modifiers: .command)
+            Button("Heading 5") { editor?.format("h5") }
+                .keyboardShortcut("5", modifiers: .command)
+            Button("Heading 6") { editor?.format("h6") }
+                .keyboardShortcut("6", modifiers: .command)
+            Button("Paragraph") { editor?.format("paragraph") }
+                .keyboardShortcut("0", modifiers: .command)
+            Divider()
+            Button("Quote") { editor?.format("quote") }
+                .keyboardShortcut("q", modifiers: [.command, .option])
+            Divider()
+            Button("Bullet List") { editor?.format("bullet") }
+                .keyboardShortcut("u", modifiers: [.command, .option])
+            Button("Numbered List") { editor?.format("ordered") }
+                .keyboardShortcut("o", modifiers: [.command, .option])
+            Button("Checklist") { editor?.format("task") }
+                .keyboardShortcut("x", modifiers: [.command, .option])
+            }
+            .disabled(editor == nil)
+        }
+
+        CommandMenu("Format") {
+            Group {
+            Button("Bold") { editor?.format("bold") }
+                .keyboardShortcut("b", modifiers: .command)
+            Button("Italic") { editor?.format("italic") }
+                .keyboardShortcut("i", modifiers: .command)
+            Button("Strikethrough") { editor?.format("strike") }
+                .keyboardShortcut("s", modifiers: [.command, .control])
+            Button("Code") { editor?.format("code") }
+                .keyboardShortcut("`", modifiers: .control)
+            Divider()
+            Button("Link") { editor?.format("link") }
+                .keyboardShortcut("k", modifiers: .command)
+            Button("Image…") { editor?.format("attach") }
+            }
+            .disabled(editor == nil)
         }
         CommandGroup(replacing: .printItem) {
             // Replacing .printItem also removes the stock Page Setup, so

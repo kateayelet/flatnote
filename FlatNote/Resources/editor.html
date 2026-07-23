@@ -427,11 +427,17 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     // ship the bytes to the host, which saves a real image file next to the
     // note and calls insertPastedImage with the relative path. Fires before
     // beforeinput; preventDefault stops the text path double-handling it.
+    // The paste event is the one interception point that is cancelable on
+    // every platform. beforeinput's insertFromPaste is not reliably
+    // cancelable in macOS WebKit, and letting the native paste run corrupts
+    // the line model: multi-line text lands inside one line div and its
+    // newlines vanish in the textContent sync. So: always preventDefault,
+    // route images to the host and text through handlePaste.
     editor.addEventListener('paste', (e) => {
+        e.preventDefault();
         const items = (e.clipboardData && e.clipboardData.items) || [];
         for (const item of items) {
             if (item.kind === 'file' && item.type && item.type.indexOf('image/') === 0) {
-                e.preventDefault();
                 const file = item.getAsFile();
                 if (!file) return;
                 const reader = new FileReader();
@@ -443,6 +449,8 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
                 return;
             }
         }
+        const text = e.clipboardData ? e.clipboardData.getData('text/plain') : '';
+        if (text) handlePaste(text.replace(/\r\n?/g, '\n'));
     });
 
     // Nav-bar title handoff: while the note's leading heading is on screen
@@ -910,9 +918,36 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     window.fmtTask = function() { toggleLinePrefix('- [ ] '); };
     window.fmtLink = function() { insertLink(); };
 
+    // Set the current line to exactly heading level n (0 = plain paragraph),
+    // replacing whatever block prefix is there. The Mac Paragraph menu's
+    // Heading 1-6 / Paragraph items, matching Typora's Cmd+0-6.
+    function setHeadingLevel(n) {
+        const sr = getSelectionRange();
+        if (!sr) return;
+        pushUndo('format');
+        const lines = markdownSource.split('\n');
+        const idx = sr.startLine;
+        const line = lines[idx] || '';
+        const stripped = line.replace(/^(#{1,6}\s+|>\s?|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+\.\s+)/, '');
+        const removed = line.length - stripped.length;
+        const prefix = n > 0 ? '#'.repeat(n) + ' ' : '';
+        lines[idx] = prefix + stripped;
+        markdownSource = lines.join('\n');
+        render(); setCursor(idx, Math.max(prefix.length, sr.startOffset - removed + prefix.length));
+        updatePlaceholder(); notifyChange();
+    }
+
     const fmtActions = {
         bold: window.fmtBold, italic: window.fmtItalic, heading: window.fmtHeading,
         bullet: window.fmtBullet, task: window.fmtTask, link: window.fmtLink,
+        strike: () => wrapInline('~~'),
+        code: () => wrapInline('`'),
+        quote: () => toggleLinePrefix('> '),
+        ordered: () => toggleLinePrefix('1. '),
+        paragraph: () => setHeadingLevel(0),
+        h1: () => setHeadingLevel(1), h2: () => setHeadingLevel(2),
+        h3: () => setHeadingLevel(3), h4: () => setHeadingLevel(4),
+        h5: () => setHeadingLevel(5), h6: () => setHeadingLevel(6),
         // The native picker steals focus, so remember where the image goes
         // before asking for one; insertPastedImage restores it.
         attach: () => {
@@ -920,6 +955,18 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
             attachReturnPos = sr ? { line: sr.startLine, offset: sr.startOffset } : null;
             postToHost({ action: 'attachImage' });
         }
+    };
+
+    // Menu-bar formatting (Mac): the host invokes actions by name.
+    window.runFormat = function(name) {
+        const action = fmtActions[name];
+        if (action) { editor.focus(); action(); }
+    };
+
+    // Outline navigation: scroll a source line to the top of the view.
+    window.scrollToLine = function(i) {
+        const div = editor.querySelector('.line[data-line="' + i + '"]');
+        if (div) div.scrollIntoView({ behavior: 'smooth', block: 'start' });
     };
 
     const toolbar = document.getElementById('toolbar');
@@ -957,7 +1004,10 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         window.visualViewport.addEventListener('resize', positionToolbar);
         window.visualViewport.addEventListener('scroll', positionToolbar);
     }
-    editor.addEventListener('focus', () => { toolbar.classList.add('visible'); positionToolbar(); });
+    // The formatting bar exists for touch keyboards; on the Mac the Format
+    // and Paragraph menus (plus shortcuts) do this job, so the bar stays off.
+    const touchDevice = 'ontouchstart' in window;
+    editor.addEventListener('focus', () => { if (touchDevice) { toolbar.classList.add('visible'); positionToolbar(); } });
     editor.addEventListener('blur', () => {
         setTimeout(() => {
             if (document.activeElement !== editor) toolbar.classList.remove('visible');

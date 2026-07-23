@@ -317,9 +317,12 @@ struct NoteLibraryView: View {
                     }
                 }
             }
-            .navigationTitle("Notes")
             #if os(iOS)
+            .navigationTitle("Notes")
             .navigationBarTitleDisplayMode(.large)
+            #else
+            // The Mac window belongs to the app, not a folder: title it FlatNote.
+            .navigationTitle("FlatNote")
             #endif
             #if DEBUG
             .onAppear {
@@ -903,7 +906,14 @@ struct NoteCard: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 100, alignment: .topLeading)
+        #if os(macOS)
+        // regularMaterial reads as flat gray over the Mac window background,
+        // inverting the iOS scheme (white cards on gray). Use the text
+        // background color: white in light mode, adaptive in dark.
+        .background(Color(nsColor: .textBackgroundColor))
+        #else
         .background(.regularMaterial)
+        #endif
         .clipShape(RoundedRectangle(cornerRadius: 12))
         .overlay(
             RoundedRectangle(cornerRadius: 12)

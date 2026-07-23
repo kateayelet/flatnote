@@ -73,32 +73,94 @@ struct DocumentEditorView: View {
     @State private var controller = EditorController()
     @State private var showingFind = false
     @State private var findText = ""
+    /// Shared with the View > Outline menu toggle (same defaults key).
+    @AppStorage("flatnoteOutlineVisible") private var outlineVisible = true
 
     private var exportName: String {
         fileURL?.deletingPathExtension().lastPathComponent ?? "Note"
     }
 
+    /// The note's headings, straight from the source text: (line, level, title).
+    private struct OutlineItem: Identifiable {
+        let id: Int
+        let level: Int
+        let title: String
+    }
+
+    private var outline: [OutlineItem] {
+        document.text.components(separatedBy: "\n").enumerated().compactMap { index, line in
+            guard let match = line.range(of: "^#{1,6} +", options: .regularExpression) else { return nil }
+            let level = line[..<match.upperBound].filter { $0 == "#" }.count
+            let title = String(line[match.upperBound...]).trimmingCharacters(in: .whitespaces)
+            guard !title.isEmpty else { return nil }
+            return OutlineItem(id: index, level: level, title: title)
+        }
+    }
+
     var body: some View {
-        DocumentWebView(text: $document.text, controller: controller, fileURL: fileURL)
-            .onAppear { controller.suggestedExportName = exportName }
-            .onChange(of: fileURL) { _, _ in controller.suggestedExportName = exportName }
-            .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+        HSplitView {
+            if outlineVisible {
+                outlinePane
+                    .frame(minWidth: 150, idealWidth: 200, maxWidth: 320)
+            }
+            DocumentWebView(text: $document.text, controller: controller, fileURL: fileURL)
+                .frame(minWidth: 320)
+        }
+        .onAppear { controller.suggestedExportName = exportName }
+        .onChange(of: fileURL) { _, _ in controller.suggestedExportName = exportName }
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                Button {
+                    outlineVisible.toggle()
+                } label: {
+                    Image(systemName: "sidebar.left")
+                }
+                .help("Show or hide the outline")
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    toggleFind()
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .keyboardShortcut("f", modifiers: .command)
+                .help("Find in note")
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if showingFind {
+                findBar
+            }
+        }
+        .focusedSceneValue(\.activeEditor, controller)
+    }
+
+    private var outlinePane: some View {
+        Group {
+            if outline.isEmpty {
+                VStack {
+                    Text("No headings")
+                        .font(.callout)
+                        .foregroundStyle(.tertiary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(outline) { item in
                     Button {
-                        toggleFind()
+                        controller.scrollTo(line: item.id)
                     } label: {
-                        Image(systemName: "magnifyingglass")
+                        Text(item.title)
+                            .font(item.level == 1 ? .callout.weight(.semibold) : .callout)
+                            .lineLimit(1)
+                            .padding(.leading, CGFloat(item.level - 1) * 12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
-                    .keyboardShortcut("f", modifiers: .command)
-                    .help("Find in note")
+                    .buttonStyle(.plain)
                 }
+                .listStyle(.sidebar)
             }
-            .safeAreaInset(edge: .top) {
-                if showingFind {
-                    findBar
-                }
-            }
-            .focusedSceneValue(\.activeEditor, controller)
+        }
     }
 
     // Mirrors EditorView.findBar (the iOS/library editor); kept in sync by hand.
@@ -275,6 +337,32 @@ final class DocumentEditorCoordinator: NSObject, WKNavigationDelegate, WKScriptM
                 webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
             } else {
                 NSSound.beep()
+            }
+        }
+
+        if action == "attachImage" {
+            // Format > Image…, same pipeline as paste. Untitled documents
+            // have nowhere on disk to put the asset yet.
+            guard fileURL != nil else { NSSound.beep(); return }
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.image]
+            panel.allowsMultipleSelection = false
+            panel.begin { [weak self] response in
+                guard let self, response == .OK, let url = panel.url,
+                      let data = try? Data(contentsOf: url), let fileURL = self.fileURL else { return }
+                let mime: String
+                switch url.pathExtension.lowercased() {
+                case "jpg", "jpeg": mime = "image/jpeg"
+                case "gif": mime = "image/gif"
+                case "heic": mime = "image/heic"
+                case "webp": mime = "image/webp"
+                default: mime = "image/png"
+                }
+                if let rel = AssetSchemeHandler.saveImageAsset(data: data, mime: mime, noteURL: fileURL) {
+                    self.webView?.evaluateJavaScript("insertPastedImage('\(rel)')")
+                } else {
+                    NSSound.beep()
+                }
             }
         }
     }

@@ -102,6 +102,17 @@ class NoteStore {
     private var documentsURL: URL { storageURL }
 
     init() {
+        // FLATNOTE_STORAGE_DIR pins storage to a fixed folder and skips
+        // iCloud entirely: screenshot and demo runs against a seeded library
+        // without ever touching the real one.
+        if let override = ProcessInfo.processInfo.environment["FLATNOTE_STORAGE_DIR"] {
+            let dir = URL(fileURLWithPath: override, isDirectory: true)
+            injectedDirectory = dir
+            storageURL = dir
+            loadNotes()
+            isReady = true
+            return
+        }
         injectedDirectory = nil
         storageURL = Self.localDocumentsURL()
         // iCloud lookup can block, so resolve storage off the main thread and

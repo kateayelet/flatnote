@@ -53,6 +53,13 @@ final class EditorController {
     func undo() { webView?.evaluateJavaScript("undo()") }
     func redo() { webView?.evaluateJavaScript("redo()") }
 
+    /// Menu-bar formatting (Mac Format / Paragraph menus): invokes the same
+    /// named actions the touch toolbar uses.
+    func format(_ name: String) { webView?.evaluateJavaScript("runFormat('\(name)')") }
+
+    /// Outline navigation: scroll the given source line into view.
+    func scrollTo(line: Int) { webView?.evaluateJavaScript("scrollToLine(\(line))") }
+
     #if os(macOS)
     /// Suggested filename for exports, set by the owning document view.
     var suggestedExportName = "Note"
