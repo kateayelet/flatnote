@@ -39,15 +39,12 @@ struct NoteFile: Identifiable, Hashable {
         (name as NSString).deletingPathExtension
     }
 
-    // Identity is the file URL. Two references to the same note are equal even
-    // if their cached modification dates differ.
-    static func == (lhs: NoteFile, rhs: NoteFile) -> Bool {
-        lhs.id == rhs.id
-    }
-
-    func hash(into hasher: inout Hasher) {
-        hasher.combine(id)
-    }
+    // Synthesized member-wise equality on purpose: the library's ForEach
+    // decides whether to re-render a card by comparing note values, so a
+    // changed modification date must read as a changed note or edited cards
+    // keep stale previews and thumbnails. Identity for navigation and pins
+    // stays the file URL (id / relativePath); nothing compares note values
+    // across a reload expecting date drift to be invisible.
 }
 
 @Observable
@@ -482,9 +479,20 @@ class NoteStore {
     func saveContent(_ content: String, to note: NoteFile) {
         do {
             try coordinatedWrite(content, to: note.url)
+            noteDidChangeOnDisk(note)
         } catch {
             lastError = "Could not save \"\(note.displayName)\". \(error.localizedDescription)"
         }
+    }
+
+    /// Re-reads a note's row after its file changed so the library reflects
+    /// the edit: card previews and thumbnails are computed from the notes
+    /// array, and a saved file alone never invalidates the view.
+    func noteDidChangeOnDisk(_ note: NoteFile) {
+        guard let idx = notes.firstIndex(where: { $0.id == note.id }) else { return }
+        let attrs = try? FileManager.default.attributesOfItem(atPath: note.url.path)
+        notes[idx].modifiedDate = (attrs?[.modificationDate] as? Date) ?? Date()
+        sortNotes()
     }
 
     /// Renames a note's file on disk. Returns the updated note, or nil if the

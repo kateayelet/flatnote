@@ -50,15 +50,23 @@ struct NoteFileTests {
         #expect(note.url == url)
     }
 
-    @Test func identityIsURL() {
+    @Test func identityIsURLButEqualitySeesEdits() {
         let url1 = URL(fileURLWithPath: "/tmp/a.md")
         let url2 = URL(fileURLWithPath: "/tmp/b.md")
-        let note1 = NoteFile(id: url1, name: "a.md", modifiedDate: Date())
-        let note2 = NoteFile(id: url2, name: "b.md", modifiedDate: Date())
+        let stamp = Date()
+        let note1 = NoteFile(id: url1, name: "a.md", modifiedDate: stamp)
+        let note2 = NoteFile(id: url2, name: "b.md", modifiedDate: stamp)
         #expect(note1 != note2)
 
-        let note1copy = NoteFile(id: url1, name: "a.md", modifiedDate: Date())
+        // Same file, same date: the same value.
+        let note1copy = NoteFile(id: url1, name: "a.md", modifiedDate: stamp)
         #expect(note1 == note1copy)
+
+        // Same file, newer date: a DIFFERENT value. The library's ForEach
+        // relies on this to re-render an edited note's card (fresh preview
+        // and thumbnail) instead of reusing the stale row.
+        let note1edited = NoteFile(id: url1, name: "a.md", modifiedDate: stamp.addingTimeInterval(60))
+        #expect(note1 != note1edited)
     }
 }
 
