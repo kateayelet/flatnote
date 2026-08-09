@@ -204,7 +204,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     <button data-fmt="heading" aria-label="Heading">H</button>
     <button data-fmt="bullet" aria-label="Bullet list">&#8226;</button>
     <button data-fmt="task" aria-label="Checkbox">&#9745;</button>
-    <button data-fmt="link" aria-label="Link">&#128279;</button>
+    <button data-fmt="callout" aria-label="Callout">[!]</button>
     <button data-fmt="attach" aria-label="Attach image">&#128206;</button>
 </div>
 <script src="render.js"></script>
@@ -239,8 +239,6 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         // iCloud sync) for a note the user never touched. The outline still
         // needs to be told about the new document.
         notifyOutline();
-        window.__lastNavTitle = undefined;
-        if (window.checkNavTitle) requestAnimationFrame(window.checkNavTitle);
     };
     window.getContent = function() { return markdownSource; };
 
@@ -485,23 +483,9 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         if (text) handlePaste(text.replace(/\r\n?/g, '\n'));
     });
 
-    // Nav-bar title handoff: while the note's leading heading is on screen
-    // the host hides its own (redundant) inline title, revealing it once the
-    // heading scrolls out of view. Notes without a leading heading always
-    // show the nav title.
-    function checkNavTitle() {
-        const first = document.querySelector('[data-line="0"]');
-        let show = true;
-        if (first && /line-h\d/.test(first.className)) {
-            show = first.getBoundingClientRect().bottom <= 0;
-        }
-        if (show !== window.__lastNavTitle) {
-            window.__lastNavTitle = show;
-            postToHost({ action: 'navTitle', visible: show });
-        }
-    }
-    document.addEventListener('scroll', () => requestAnimationFrame(checkNavTitle), { passive: true });
-    window.checkNavTitle = checkNavTitle;
+    // The nav-bar title is always the filename (host-side); no hide/show
+    // handoff. The old scroll-linked toggle could wedge in the hidden state
+    // after clipboard actions, leaving the note apparently untitled.
 
     // Called back by the host once the pasted image is on disk. The image
     // syntax only renders as a block on its own line, so surround it with
@@ -786,6 +770,25 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     function handlePaste(text) {
         const sr = getSelectionRange();
         if (!sr) return;
+        // Pasting a URL over selected text links the selection instead of
+        // replacing it: the phone-friendly way to make a link (the toolbar
+        // has no link button).
+        const url = text.trim();
+        if (!sr.collapsed && sr.startLine === sr.endLine &&
+            /^https?:\/\/\S+$/.test(url)) {
+            const lines = markdownSource.split('\n');
+            const line = lines[sr.startLine] || '';
+            const inner = line.slice(sr.startOffset, sr.endOffset);
+            if (!inner.includes('[') && !inner.includes(']')) {
+                pushUndo('paste');
+                const rep = '[' + inner + '](' + url + ')';
+                lines[sr.startLine] = line.slice(0, sr.startOffset) + rep + line.slice(sr.endOffset);
+                markdownSource = lines.join('\n');
+                render(); setCursor(sr.startLine, sr.startOffset + rep.length);
+                updatePlaceholder(); notifyChange();
+                return;
+            }
+        }
         pushUndo('paste');
         if (!sr.collapsed) {
             deleteRangeRaw(sr.startLine, sr.startOffset, sr.endLine, sr.endOffset);
@@ -952,10 +955,42 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
 
     window.fmtBold = function() { wrapInline('**'); };
     window.fmtItalic = function() { wrapInline('*'); };
-    window.fmtHeading = function() { toggleLinePrefix('# '); };
+    // One button walks the heading sizes instead of only toggling H1:
+    // plain -> H1 -> H2 -> H3 -> plain.
+    window.fmtHeading = function() {
+        const sr = getSelectionRange();
+        if (!sr) return;
+        const line = markdownSource.split('\n')[sr.startLine] || '';
+        const m = line.match(/^(#{1,6})\s/);
+        const level = m ? m[1].length : 0;
+        setHeadingLevel(level >= 3 ? 0 : level + 1);
+    };
     window.fmtBullet = function() { toggleLinePrefix('- '); };
     window.fmtTask = function() { toggleLinePrefix('- [ ] '); };
     window.fmtLink = function() { insertLink(); };
+    // Same walk for callouts: note -> tip -> important -> warning ->
+    // caution -> plain line. First press wraps the line as a note callout.
+    const calloutTypes = ['note', 'tip', 'important', 'warning', 'caution'];
+    window.fmtCallout = function() {
+        const sr = getSelectionRange();
+        if (!sr) return;
+        pushUndo('format');
+        const lines = markdownSource.split('\n');
+        const idx = sr.startLine;
+        const line = lines[idx] || '';
+        const m = line.match(/^>\s?\[!(\w+)\]\s?(.*)$/i);
+        if (m) {
+            const cur = calloutTypes.indexOf(m[1].toLowerCase());
+            const next = (cur >= 0 && cur < calloutTypes.length - 1) ? calloutTypes[cur + 1] : null;
+            lines[idx] = next ? '> [!' + next + '] ' + m[2] : m[2];
+        } else {
+            const stripped = line.replace(/^(#{1,6}\s+|>\s?|[-*+]\s+\[[ xX]\]\s+|[-*+]\s+|\d+\.\s+)/, '');
+            lines[idx] = '> [!note] ' + stripped;
+        }
+        markdownSource = lines.join('\n');
+        render(); setCursor(idx, lines[idx].length);
+        updatePlaceholder(); notifyChange();
+    };
 
     // Set the current line to exactly heading level n (0 = plain paragraph),
     // replacing whatever block prefix is there. The Mac Paragraph menu's
@@ -979,6 +1014,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     const fmtActions = {
         bold: window.fmtBold, italic: window.fmtItalic, heading: window.fmtHeading,
         bullet: window.fmtBullet, task: window.fmtTask, link: window.fmtLink,
+        callout: window.fmtCallout,
         strike: () => wrapInline('~~'),
         code: () => wrapInline('`'),
         quote: () => toggleLinePrefix('> '),

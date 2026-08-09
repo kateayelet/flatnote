@@ -139,6 +139,8 @@ struct FlatNoteEditorCommands: Commands {
             Divider()
             Button("Quote") { editor?.format("quote") }
                 .keyboardShortcut("q", modifiers: [.command, .option])
+            Button("Callout") { editor?.format("callout") }
+                .keyboardShortcut("c", modifiers: [.command, .option])
             Divider()
             Button("Bullet List") { editor?.format("bullet") }
                 .keyboardShortcut("u", modifiers: [.command, .option])

@@ -425,21 +425,7 @@ struct NoteLibraryView: View {
                 urls.forEach(handleIncoming)
             }
             .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape")
-                    }
-                    .tint(.primary)
-                }
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showingFilePicker = true } label: {
-                        Image(systemName: "folder")
-                    }
-                    .tint(.primary)
-                    .accessibilityLabel("Open File")
-                }
-                #else
+                #if os(macOS)
                 ToolbarItem(placement: .navigation) {
                     Button { showingSettings = true } label: {
                         Image(systemName: "gearshape")
@@ -448,6 +434,10 @@ struct NoteLibraryView: View {
                 }
                 #endif
                 ToolbarItem(placement: .primaryAction) {
+                    // On iOS this menu is the library's whole utility drawer:
+                    // creating a note is the only action that has earned its
+                    // own top-bar button, so opening external files and
+                    // Settings live in here instead of the leading edge.
                     Menu {
                         Picker("Sort Notes By", selection: Binding(
                             get: { store.sortOrder },
@@ -463,6 +453,19 @@ struct NoteLibraryView: View {
                         } label: {
                             Label("New Folder", systemImage: "folder.badge.plus")
                         }
+                        #if os(iOS)
+                        Button {
+                            showingFilePicker = true
+                        } label: {
+                            Label("Open File\u{2026}", systemImage: "folder")
+                        }
+                        Divider()
+                        Button {
+                            showingSettings = true
+                        } label: {
+                            Label("Settings", systemImage: "gearshape")
+                        }
+                        #endif
                     } label: {
                         // Decreasing stacked lines: the standard sort glyph.
                         // Up/down arrows read as a transfer/sync icon.
@@ -660,6 +663,19 @@ struct SettingsView: View {
         return "\(version) (\(build))"
     }
 
+    /// Contact Us opens a pre-addressed mail draft. The subject invites
+    /// product feedback; the body stays empty so nothing feels scripted.
+    private var contactMailURL: URL {
+        var parts = URLComponents()
+        parts.scheme = "mailto"
+        parts.path = "kateayelet@aftrveil.com"
+        parts.queryItems = [URLQueryItem(
+            name: "subject",
+            value: "FlatNote \(appVersion): feedback"
+        )]
+        return parts.url ?? URL(string: "mailto:kateayelet@aftrveil.com")!
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -695,7 +711,7 @@ struct SettingsView: View {
                 } header: {
                     Text("Welcome Note")
                 } footer: {
-                    Text("Brings back the \"Welcome to FlatNote\" guide. If one already exists, it is added as a new copy so your edits are kept.")
+                    Text("Brings back the \"Welcome to FlatNote\" guide. If one already exists, a second copy is added.")
                 }
 
                 Section {
@@ -704,8 +720,13 @@ struct SettingsView: View {
                     } label: {
                         Label("What is FlatNote?", systemImage: "questionmark.circle")
                     }
+                    Link(destination: contactMailURL) {
+                        Label("Contact Us", systemImage: "envelope")
+                    }
                 } header: {
                     Text("Philosophy")
+                } footer: {
+                    Text("Questions, ideas, or product feedback all land straight with the person who makes FlatNote.")
                 }
 
                 Section {
