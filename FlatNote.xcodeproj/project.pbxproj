@@ -15,6 +15,7 @@
 		A10000090000000000000009 /* render.js in Resources */ = {isa = PBXBuildFile; fileRef = A20000090000000000000009 /* render.js */; };
 		C10000010000000000000001 /* NoteLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000010000000000000001 /* NoteLibraryView.swift */; };
 		C10000020000000000000002 /* NoteStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000020000000000000002 /* NoteStore.swift */; };
+		C10000030000000000000003 /* DocxExporter.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20000030000000000000003 /* DocxExporter.swift */; };
 		D10000010000000000000001 /* FlatNoteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20000010000000000000001 /* FlatNoteTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -40,6 +41,7 @@
 		A30000010000000000000001 /* FlatNote.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = FlatNote.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		C20000010000000000000001 /* NoteLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteLibraryView.swift; sourceTree = "<group>"; };
 		C20000020000000000000002 /* NoteStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteStore.swift; sourceTree = "<group>"; };
+		C20000030000000000000003 /* DocxExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocxExporter.swift; sourceTree = "<group>"; };
 		D20000010000000000000001 /* FlatNoteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlatNoteTests.swift; sourceTree = "<group>"; };
 		D30000010000000000000001 /* FlatNoteTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = FlatNoteTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -79,6 +81,7 @@
 				A20000030000000000000003 /* EditorView.swift */,
 				C20000010000000000000001 /* NoteLibraryView.swift */,
 				C20000020000000000000002 /* NoteStore.swift */,
+				C20000030000000000000003 /* DocxExporter.swift */,
 				A50000040000000000000004 /* Resources */,
 				A20000060000000000000006 /* Assets.xcassets */,
 				A20000080000000000000008 /* Info.plist */,
@@ -211,6 +214,7 @@
 				4B108A892FA7F19E0088E7A5 /* MarkdownDocument.swift in Sources */,
 				C10000010000000000000001 /* NoteLibraryView.swift in Sources */,
 				C10000020000000000000002 /* NoteStore.swift in Sources */,
+				C10000030000000000000003 /* DocxExporter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

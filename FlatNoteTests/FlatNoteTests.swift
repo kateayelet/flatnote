@@ -70,6 +70,52 @@ struct NoteFileTests {
     }
 }
 
+// MARK: - DocxExporter Tests
+
+struct DocxExporterTests {
+    /// The zip stores entries uncompressed, so the document XML is directly
+    /// searchable in the produced bytes: structure, styles, and images all
+    /// leave fingerprints.
+    @Test func docxCarriesStructureStylesAndImages() throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("docx-test-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        // A 1x1 PNG so the image pipeline has something real to embed.
+        let pngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGBgAAAABQABh6FO1AAAAABJRU5ErkJggg=="
+        let assets = dir.appendingPathComponent("assets", isDirectory: true)
+        try FileManager.default.createDirectory(at: assets, withIntermediateDirectories: true)
+        try Data(base64Encoded: pngBase64)!.write(to: assets.appendingPathComponent("dot.png"))
+
+        let markdown = """
+        # Title here
+
+        Some **bold** and ~~gone~~ and `mono` text.
+
+        > [!tip] Worth knowing.
+
+        - [x] Done
+        ![A dot](assets/dot.png)
+        """
+        let dest = dir.appendingPathComponent("out.docx")
+        try DocxExporter.export(markdown: markdown, baseURL: dir, to: dest)
+
+        let bytes = try Data(contentsOf: dest)
+        #expect(bytes.prefix(2) == Data("PK".utf8))
+        let raw = String(decoding: bytes, as: UTF8.self)
+        #expect(raw.contains("[Content_Types].xml"))
+        #expect(raw.contains("word/media/image1.png"))
+        #expect(raw.contains("<w:b/>"))
+        #expect(raw.contains("<w:strike/>"))
+        #expect(raw.contains("Courier New"))
+        #expect(raw.contains("Tip: "))
+        #expect(raw.contains("\u{2611}"))
+        #expect(raw.contains("Title here"))
+        #expect(raw.contains("<a:blip r:embed=\"rIdImg1\"/>"))
+    }
+}
+
 // MARK: - NoteStore Tests (filesystem integration)
 
 struct NoteStoreTests {

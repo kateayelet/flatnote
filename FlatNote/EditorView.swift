@@ -204,6 +204,9 @@ struct EditorView: View {
     @State private var controller = EditorController()
     @State private var showingFind = false
     @State private var findText = ""
+    #if os(iOS)
+    @State private var shareFile: ShareFile?
+    #endif
 
     var body: some View {
         EditorWebView(store: store, note: note, controller: controller, isNew: isNew)
@@ -227,6 +230,23 @@ struct EditorView: View {
             #endif
             .toolbar {
                 #if os(iOS)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button { exportShare(as: .pdf) } label: {
+                            Label("Share as PDF", systemImage: "doc.richtext")
+                        }
+                        Button { exportShare(as: .word) } label: {
+                            Label("Share as Word", systemImage: "doc.text")
+                        }
+                        Button { exportShare(as: .markdown) } label: {
+                            Label("Share as Markdown", systemImage: "doc.plaintext")
+                        }
+                    } label: {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                    .tint(.primary)
+                    .accessibilityLabel("Share Note")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         toggleFind()
@@ -252,6 +272,11 @@ struct EditorView: View {
                     findBar
                 }
             }
+            #if os(iOS)
+            .sheet(item: $shareFile) { file in
+                ActivityShareSheet(url: file.url)
+            }
+            #endif
             .onDisappear { controller.onClose?() }
             #if DEBUG
             .onAppear {
@@ -267,6 +292,57 @@ struct EditorView: View {
             }
             #endif
     }
+
+    #if os(iOS)
+    private enum ShareFormat { case pdf, word, markdown }
+
+    /// Builds the chosen file in a temp folder and hands it to the share
+    /// sheet. The document is always named after the note, so what lands
+    /// in Mail or Files carries the note's title.
+    private func exportShare(as format: ShareFormat) {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("FlatNoteShare", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        switch format {
+        case .markdown:
+            // The existing export: the .md itself, or a zip when the note
+            // references images, so pictures survive the trip.
+            shareFile = ShareFile(url: store.exportItemURL(for: note))
+
+        case .word:
+            let dest = dir.appendingPathComponent(note.displayName + ".docx")
+            do {
+                try DocxExporter.export(
+                    markdown: store.readContent(of: note),
+                    baseURL: note.url.deletingLastPathComponent(),
+                    to: dest
+                )
+                shareFile = ShareFile(url: dest)
+            } catch {
+                store.lastError = "Could not build the Word file. \(error.localizedDescription)"
+            }
+
+        case .pdf:
+            guard let webView = controller.webView else { return }
+            // Blur first so the caret line's raw markdown and the keyboard
+            // toolbar do not end up in the snapshot.
+            webView.evaluateJavaScript("document.activeElement && document.activeElement.blur()") { _, _ in
+                webView.createPDF(configuration: WKPDFConfiguration()) { result in
+                    DispatchQueue.main.async {
+                        do {
+                            let dest = dir.appendingPathComponent(note.displayName + ".pdf")
+                            try result.get().write(to: dest)
+                            shareFile = ShareFile(url: dest)
+                        } catch {
+                            store.lastError = "Could not build the PDF. \(error.localizedDescription)"
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #endif
 
     private var findBar: some View {
         HStack(spacing: 10) {
@@ -724,6 +800,22 @@ extension EditorCoordinator: PHPickerViewControllerDelegate {
             }
         }
     }
+}
+
+/// A generated file waiting in the share sheet; identity is its location.
+struct ShareFile: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+/// The stock iOS share sheet, which SwiftUI's ShareLink cannot present for
+/// a file that is generated after the tap.
+struct ActivityShareSheet: UIViewControllerRepresentable {
+    let url: URL
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: [url], applicationActivities: nil)
+    }
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
 }
 
 /// A deliberately plain sketch pad: one black pen, white paper, finger or
