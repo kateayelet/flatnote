@@ -205,6 +205,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     <button data-fmt="bullet" aria-label="Bullet list">&#8226;</button>
     <button data-fmt="task" aria-label="Checkbox">&#9745;</button>
     <button data-fmt="callout" aria-label="Callout">[!]</button>
+    <button data-fmt="sketch" aria-label="Sketch">&#9998;</button>
     <button data-fmt="attach" aria-label="Attach image">&#128206;</button>
 </div>
 <script src="render.js"></script>
@@ -1029,6 +1030,12 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
             const sr = getSelectionRange();
             attachReturnPos = sr ? { line: sr.startLine, offset: sr.startOffset } : null;
             postToHost({ action: 'attachImage' });
+        },
+        // The sketch pad also steals focus; same caret bookmark as attach.
+        sketch: () => {
+            const sr = getSelectionRange();
+            attachReturnPos = sr ? { line: sr.startLine, offset: sr.startOffset } : null;
+            postToHost({ action: 'sketchImage' });
         }
     };
 

@@ -3,6 +3,7 @@ import WebKit
 #if canImport(UIKit)
 import UIKit
 import PhotosUI
+import PencilKit
 #endif
 #if canImport(AppKit)
 import AppKit
@@ -588,6 +589,12 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
             presentImageAttachPicker()
         }
 
+        #if os(iOS)
+        if action == "sketchImage" {
+            presentSketchPad()
+        }
+        #endif
+
     }
 
     // MARK: Attaching images
@@ -603,6 +610,22 @@ class EditorCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler 
     }
 
     #if os(iOS)
+    /// The toolbar pencil: a finger-drawing canvas. The sketch comes back
+    /// as PNG bytes and rides the same assets/ pipeline as a pasted photo,
+    /// so the note stays a plain markdown file.
+    private func presentSketchPad() {
+        let sketch = SketchViewController()
+        sketch.onDone = { [weak self] data in
+            guard let data else { return }
+            self?.attachImage(data: data, mime: "image/png")
+        }
+        let nav = UINavigationController(rootViewController: sketch)
+        nav.modalPresentationStyle = .fullScreen
+        var top = webView?.window?.rootViewController
+        while let presented = top?.presentedViewController { top = presented }
+        top?.present(nav, animated: true)
+    }
+
     /// The toolbar paperclip: the system photo picker, which needs no
     /// photo-library permission because it runs out of process.
     private func presentImageAttachPicker() {
@@ -700,6 +723,72 @@ extension EditorCoordinator: PHPickerViewControllerDelegate {
                 self?.attachImage(data: data, mime: known[typeId] ?? "image/png")
             }
         }
+    }
+}
+
+/// A deliberately plain sketch pad: one black pen, white paper, finger or
+/// Pencil. Done hands back PNG bytes (nil for an empty or cancelled sketch);
+/// the caller files them like any other attached image.
+final class SketchViewController: UIViewController {
+    private let canvas = PKCanvasView()
+    var onDone: ((Data?) -> Void)?
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        title = "Sketch"
+        view.backgroundColor = .systemBackground
+        // Black-on-white regardless of dark mode: the sketch is destined for
+        // paper-white PNG, so what you draw is exactly what the note shows.
+        canvas.overrideUserInterfaceStyle = .light
+        canvas.backgroundColor = .white
+        canvas.drawingPolicy = .anyInput
+        canvas.tool = PKInkingTool(.pen, color: .black, width: 6)
+        canvas.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(canvas)
+        NSLayoutConstraint.activate([
+            canvas.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
+            canvas.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            canvas.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            canvas.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        navigationItem.leftBarButtonItems = [
+            UIBarButtonItem(barButtonSystemItem: .cancel, target: self, action: #selector(cancelTapped)),
+        ]
+        navigationItem.rightBarButtonItems = [
+            UIBarButtonItem(barButtonSystemItem: .done, target: self, action: #selector(doneTapped)),
+            UIBarButtonItem(title: "Clear", style: .plain, target: self, action: #selector(clearTapped)),
+        ]
+    }
+
+    @objc private func cancelTapped() {
+        onDone?(nil)
+        dismiss(animated: true)
+    }
+
+    @objc private func clearTapped() {
+        canvas.drawing = PKDrawing()
+    }
+
+    @objc private func doneTapped() {
+        let drawing = canvas.drawing
+        guard !drawing.bounds.isEmpty else {
+            onDone?(nil)
+            dismiss(animated: true)
+            return
+        }
+        // Crop to the strokes with breathing room, flatten onto white; the
+        // note gets a tight picture, not a screen-sized empty page.
+        let rect = drawing.bounds.insetBy(dx: -24, dy: -24)
+        let ink = drawing.image(from: rect, scale: 2)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 2
+        let flattened = UIGraphicsImageRenderer(size: rect.size, format: format).image { ctx in
+            UIColor.white.setFill()
+            ctx.fill(CGRect(origin: .zero, size: rect.size))
+            ink.draw(in: CGRect(origin: .zero, size: rect.size))
+        }
+        onDone?(flattened.pngData())
+        dismiss(animated: true)
     }
 }
 #endif
