@@ -46,6 +46,26 @@ final class EditorController {
         webView?.evaluateJavaScript("clearSearch()")
     }
 
+    /// Replace the current match, then re-sync the match count.
+    func replaceCurrent(_ query: String, with replacement: String) {
+        guard let webView, !query.isEmpty else { return }
+        let q = EditorCoordinator.escapeForJS(query)
+        let r = EditorCoordinator.escapeForJS(replacement)
+        webView.evaluateJavaScript("replaceCurrent(`\(q)`, `\(r)`)") { [weak self] _, _ in
+            self?.setSearch(query)
+        }
+    }
+
+    /// Replace every match, then re-sync the match count.
+    func replaceAll(_ query: String, with replacement: String) {
+        guard let webView, !query.isEmpty else { return }
+        let q = EditorCoordinator.escapeForJS(query)
+        let r = EditorCoordinator.escapeForJS(replacement)
+        webView.evaluateJavaScript("replaceAll(`\(q)`, `\(r)`)") { [weak self] _, _ in
+            self?.setSearch(query)
+        }
+    }
+
     /// The web editor owns the undo stack (it intercepts all input), so the
     /// macOS Edit menu forwards into it via the focused editor value.
     func undo() { webView?.evaluateJavaScript("undo()") }
@@ -204,6 +224,8 @@ struct EditorView: View {
     @State private var controller = EditorController()
     @State private var showingFind = false
     @State private var findText = ""
+    @State private var replaceText = ""
+    @State private var showingReplace = false
     #if os(iOS)
     @State private var shareFile: ShareFile?
     #endif
@@ -345,35 +367,63 @@ struct EditorView: View {
     #endif
 
     private var findBar: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "magnifyingglass")
+        VStack(spacing: 8) {
+            HStack(spacing: 10) {
+                Button { showingReplace.toggle() } label: {
+                    Image(systemName: showingReplace ? "chevron.down" : "chevron.right")
+                }
                 .foregroundStyle(.secondary)
-            TextField("Find in note", text: $findText)
-                .autocorrectionDisabled()
-                #if os(iOS)
-                .textInputAutocapitalization(.never)
-                .submitLabel(.search)
-                #endif
-                .onChange(of: findText) { _, value in
-                    controller.setSearch(value)
+                .accessibilityLabel(showingReplace ? "Hide replace" : "Show replace")
+
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Find in note", text: $findText)
+                    .autocorrectionDisabled()
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    .submitLabel(.search)
+                    #endif
+                    .onChange(of: findText) { _, value in
+                        controller.setSearch(value)
+                    }
+
+                if controller.matchCount > 0 {
+                    Text("\(controller.currentMatch)/\(controller.matchCount)")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                } else if !findText.isEmpty {
+                    Text("None")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
                 }
 
-            if controller.matchCount > 0 {
-                Text("\(controller.currentMatch)/\(controller.matchCount)")
-                    .font(.callout.monospacedDigit())
-                    .foregroundStyle(.secondary)
-            } else if !findText.isEmpty {
-                Text("None")
-                    .font(.callout)
+                Button { controller.previous() } label: { Image(systemName: "chevron.up") }
+                    .disabled(controller.matchCount == 0)
+                Button { controller.next() } label: { Image(systemName: "chevron.down") }
+                    .disabled(controller.matchCount == 0)
+                Button { toggleFind() } label: { Image(systemName: "xmark.circle.fill") }
                     .foregroundStyle(.secondary)
             }
 
-            Button { controller.previous() } label: { Image(systemName: "chevron.up") }
-                .disabled(controller.matchCount == 0)
-            Button { controller.next() } label: { Image(systemName: "chevron.down") }
-                .disabled(controller.matchCount == 0)
-            Button { toggleFind() } label: { Image(systemName: "xmark.circle.fill") }
-                .foregroundStyle(.secondary)
+            if showingReplace {
+                HStack(spacing: 10) {
+                    Image(systemName: "arrow.2.squarepath")
+                        .foregroundStyle(.secondary)
+                    TextField("Replace with", text: $replaceText)
+                        .autocorrectionDisabled()
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
+                    Button("Replace") {
+                        controller.replaceCurrent(findText, with: replaceText)
+                    }
+                    .disabled(controller.matchCount == 0)
+                    Button("All") {
+                        controller.replaceAll(findText, with: replaceText)
+                    }
+                    .disabled(controller.matchCount == 0)
+                }
+            }
         }
         .tint(.primary)
         .padding(.horizontal, 14)
@@ -385,6 +435,8 @@ struct EditorView: View {
         showingFind.toggle()
         if !showingFind {
             findText = ""
+            replaceText = ""
+            showingReplace = false
             controller.clear()
         }
     }

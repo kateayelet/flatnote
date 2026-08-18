@@ -7,12 +7,12 @@
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :root {
-    --bg: #ffffff;
-    --fg: #1a1a1a;
-    --faded: #c0c0c0;
+    --bg: #fdfcfa;
+    --fg: #2b2926;
+    --faded: #bdb9b1;
     --accent: #555;
-    --code-bg: #f5f5f5;
-    --hr-color: #e0e0e0;
+    --code-bg: #f3f1ec;
+    --hr-color: #e6e2da;
     --font-body: 'Geist', -apple-system, 'SF Pro Text', 'Helvetica Neue', sans-serif;
     --font-mono: 'Geist Mono', 'SF Mono', 'Menlo', monospace;
     /* GitHub callout palette */
@@ -24,12 +24,12 @@
 }
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg: #1a1a1a;
-        --fg: #e0e0e0;
-        --faded: #555;
+        --bg: #1b1a18;
+        --fg: #d8d5cd;
+        --faded: #565452;
         --accent: #bbb;
-        --code-bg: #2a2a2a;
-        --hr-color: #333;
+        --code-bg: #262523;
+        --hr-color: #343230;
         --callout-note: #4493f8;
         --callout-tip: #3fb950;
         --callout-important: #ab7df8;
@@ -42,15 +42,17 @@ html, body {
     background: var(--bg);
     color: var(--fg);
     font-family: var(--font-body);
-    font-size: 16px;
-    line-height: 1.55;
+    font-size: 17px;
+    line-height: 1.72;
+    letter-spacing: 0.003em;
+    -webkit-font-smoothing: antialiased;
     -webkit-text-size-adjust: 100%;
 }
 #editor {
     min-height: 100%;
-    max-width: 760px;
+    max-width: 700px;
     margin: 0 auto;
-    padding: 16px 20px 200px 20px;
+    padding: 26px 24px 200px 24px;
     outline: none;
     white-space: pre-wrap;
     word-wrap: break-word;
@@ -58,10 +60,10 @@ html, body {
 }
 #placeholder {
     position: absolute;
-    top: 16px;
-    left: 20px;
-    right: 20px;
-    max-width: 760px;
+    top: 26px;
+    left: 24px;
+    right: 24px;
+    max-width: 700px;
     margin: 0 auto;
     color: var(--faded);
     font-style: italic;
@@ -69,7 +71,7 @@ html, body {
 }
 
 /* Line styles */
-.line { min-height: 1.55em; }
+.line { min-height: 1.72em; }
 
 /* Hanging indents: wrapped list/task lines align with the text after the
    marker, never the left margin. */
@@ -77,9 +79,9 @@ html, body {
     padding-left: 1.4em;
     text-indent: -1.4em;
 }
-.line-h1 { font-size: 1.7em; font-weight: 700; line-height: 1.3; margin: 0.3em 0 0.15em; }
-.line-h2 { font-size: 1.35em; font-weight: 600; line-height: 1.35; margin: 0.25em 0 0.1em; }
-.line-h3 { font-size: 1.12em; font-weight: 600; line-height: 1.4; margin: 0.2em 0 0.1em; }
+.line-h1 { font-size: 1.85em; font-weight: 700; line-height: 1.25; letter-spacing: -0.012em; margin: 0.7em 0 0.2em; }
+.line-h2 { font-size: 1.45em; font-weight: 650; line-height: 1.3; letter-spacing: -0.008em; margin: 0.65em 0 0.15em; }
+.line-h3 { font-size: 1.15em; font-weight: 650; line-height: 1.4; margin: 0.55em 0 0.1em; }
 .line-h4, .line-h5, .line-h6 { font-weight: 600; }
 .line-h6 { color: var(--faded); }
 .line-quote {
@@ -1128,6 +1130,55 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
         searchMatches = [];
         searchIndex = -1;
         render();
+    };
+
+    // Replace works on the markdown source (the source of truth), so the edit
+    // saves and undoes like any other. Matching is case-insensitive, to line up
+    // with find. Returns how many occurrences were replaced.
+    window.replaceCurrent = function(query, replacement) {
+        query = query || ''; replacement = replacement || '';
+        if (!query) return 0;
+        const q = query.toLowerCase();
+        const lower = markdownSource.toLowerCase();
+        // Target the occurrence the find bar is on; fall back to the first.
+        const target = searchIndex >= 0 ? searchIndex : 0;
+        let from = 0, n = 0, at = -1;
+        while (true) {
+            const found = lower.indexOf(q, from);
+            if (found === -1) break;
+            if (n === target) { at = found; break; }
+            from = found + q.length; n++;
+        }
+        if (at === -1) at = lower.indexOf(q);
+        if (at === -1) return 0;
+        pushUndo('replace');
+        markdownSource = markdownSource.slice(0, at) + replacement + markdownSource.slice(at + q.length);
+        render();
+        notifyChange();
+        if (searchQuery) window.setSearch(searchQuery);
+        return 1;
+    };
+
+    window.replaceAll = function(query, replacement) {
+        query = query || ''; replacement = replacement || '';
+        if (!query) return 0;
+        const q = query.toLowerCase();
+        const lower = markdownSource.toLowerCase();
+        let count = 0, i = 0, result = '';
+        while (true) {
+            const found = lower.indexOf(q, i);
+            if (found === -1) { result += markdownSource.slice(i); break; }
+            result += markdownSource.slice(i, found) + replacement;
+            i = found + q.length;
+            count++;
+        }
+        if (!count) return 0;
+        pushUndo('replace');
+        markdownSource = result;
+        render();
+        notifyChange();
+        if (searchQuery) window.setSearch(searchQuery);
+        return count;
     };
 
     function highlightSearch() {
