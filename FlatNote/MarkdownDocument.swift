@@ -101,10 +101,10 @@ struct DocumentEditorView: View {
         HSplitView {
             if outlineVisible {
                 outlinePane
-                    .frame(minWidth: 150, idealWidth: 200, maxWidth: 320)
+                    .frame(minWidth: 120, idealWidth: 150, maxWidth: 200)
             }
             DocumentWebView(text: $document.text, controller: controller, fileURL: fileURL)
-                .frame(minWidth: 320)
+                .frame(minWidth: 420)
         }
         .onAppear { controller.suggestedExportName = exportName }
         .onChange(of: fileURL) { _, _ in controller.suggestedExportName = exportName }

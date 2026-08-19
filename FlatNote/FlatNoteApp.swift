@@ -45,6 +45,17 @@ struct FlatNoteApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #endif
 
+    init() {
+        #if os(macOS)
+        // A document-based Mac app shows the "open a file" panel on launch by
+        // default (the Finder-looking window). Turn that off so FlatNote opens
+        // a fresh untitled note instead — you land in a blank note ready to type.
+        UserDefaults.standard.register(
+            defaults: ["NSShowAppCentricOpenPanelInsteadOfUntitledFile": false]
+        )
+        #endif
+    }
+
     var body: some Scene {
         #if os(macOS)
         // Every note opens as a real document, edited in place wherever the
@@ -57,7 +68,7 @@ struct FlatNoteApp: App {
         DocumentGroup(newDocument: MarkdownDocument()) { file in
             DocumentEditorView(document: file.$document, fileURL: file.fileURL)
         }
-        .defaultSize(width: 760, height: 880)
+        .defaultSize(width: 900, height: 900)
         // Centered document title above the toolbar row, Typora-style; the
         // unified style crams the title against the traffic lights instead.
         .windowToolbarStyle(.expanded)
