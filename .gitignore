@@ -18,3 +18,6 @@ build/
 .DS_Store
 *.swp
 *~
+
+# Leftover nested copy from the vault move. Do not commit.
+05-flatnote-app/
