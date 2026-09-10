@@ -1,4 +1,7 @@
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 extension Notification.Name {
     /// Posted when the user asks "What is FlatNote?" from the Home Screen
@@ -83,6 +86,9 @@ struct FlatNoteApp: App {
         // stranded windowless (App Review Guideline 4).
         Window("FlatNote Library", id: "library") {
             NoteLibraryView()
+                // Tag the NSWindow so Open Library can find it and bring it
+                // in front of the note that was already key.
+                .background(LibraryWindowHost())
         }
         .defaultSize(width: 900, height: 640)
         #else
@@ -94,6 +100,50 @@ struct FlatNoteApp: App {
 }
 
 #if os(macOS)
+/// The tile library is a separate window. SwiftUI's `openWindow` will create
+/// or unhide it, but when a document note is already key it often stays
+/// behind that note. Tag the window and order it front ourselves.
+enum LibraryWindow {
+    static let id = "library"
+
+    static func open(_ openWindow: OpenWindowAction) {
+        openWindow(id: id)
+        bringToFront()
+        // First open: the window may not exist until the next turn.
+        DispatchQueue.main.async { bringToFront() }
+    }
+
+    static func bringToFront() {
+        guard let window = NSApp.windows.first(where: {
+            $0.identifier?.rawValue == id || $0.title == "FlatNote Library"
+        }) else { return }
+        window.makeKeyAndOrderFront(nil)
+    }
+}
+
+/// Zero-size view whose only job is to stamp the library NSWindow with a
+/// stable identifier the first time it attaches.
+private struct LibraryWindowHost: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async { Self.apply(view) }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async { Self.tag(nsView) }
+    }
+
+    private static func tag(_ view: NSView) {
+        view.window?.identifier = NSUserInterfaceItemIdentifier(LibraryWindow.id)
+    }
+
+    private static func apply(_ view: NSView) {
+        tag(view)
+        view.window?.makeKeyAndOrderFront(nil)
+    }
+}
+
 /// Edit > Undo / Redo forwarded into the key window's web editor, which owns
 /// the undo stack (it intercepts all input, so WebKit's native undo is empty).
 struct FlatNoteEditorCommands: Commands {
@@ -117,7 +167,7 @@ struct FlatNoteEditorCommands: Commands {
                 .disabled(editor == nil)
         }
         CommandGroup(after: .newItem) {
-            Button("Open Library") { openWindow(id: "library") }
+            Button("Open Library") { LibraryWindow.open(openWindow) }
                 .keyboardShortcut("l", modifiers: [.command, .shift])
         }
         CommandGroup(after: .importExport) {
