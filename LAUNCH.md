@@ -11,7 +11,7 @@ Paste-ready listing copy: `appstore/METADATA.md`
 
 ## Where things stand
 
-- Version **1.1**, build **11** in the project. Build 10 was archived locally
+- Version **1.1**, build **13** in the project. Build 10 was archived locally
   on 2026-08-10 and never released. Builds 8–10 of 1.1 were never submitted.
 - 1.1 code is on `main` (last commit 2026-08-19: Mac opens to a blank note,
   near-white paper, smaller outline).
@@ -60,8 +60,8 @@ If Apple rejects a duplicate build number, bump `CURRENT_PROJECT_VERSION` in
 
 Install the 1.1 build from TestFlight. Confirm:
 
-- [ ] A new note opens ready to type (Mac must not show a Finder open-panel).
-- [ ] Paper is near-white, not beige.
+- [x] A new note opens ready to type (Mac must not show a Finder open-panel).
+- [x] Paper is near-white, not beige.
 - [ ] Library cards update when you edit a note and go back.
 - [ ] Attach a photo; sketch; share as PDF.
 - [ ] iCloud: edit on one device, see it on another.

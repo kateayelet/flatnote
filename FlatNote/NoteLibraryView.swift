@@ -552,11 +552,14 @@ struct NoteLibraryView: View {
 
 // MARK: - About
 
-/// The "Well, what is FlatNote?" card. Same copy everywhere it appears:
+/// The "What is FlatNote?" card. Same copy everywhere it appears:
 /// Settings row, Home Screen quick action, and the Mac About window.
-/// Copy locked by Kate 2026-07-21.
+/// Title matches the button. Credit is personal — the App Store listing
+/// is under Kate Benediktsson, not Aftrveil Labs.
 struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
+
+    private let title = "What is FlatNote?"
 
     private var versionLine: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -576,7 +579,7 @@ struct AboutView: View {
     private var creditBlock: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(versionLine)
-            Text("Made by aftrveil.")
+            Text("Made for Mom by Kate Benediktsson")
         }
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -594,7 +597,7 @@ struct AboutView: View {
                     .frame(width: 64, height: 64)
                 Spacer()
             }
-            Text("Well, what is FlatNote?")
+            Text(title)
                 .font(.title2.bold())
             copyBlock
                 .font(.body)
@@ -606,7 +609,7 @@ struct AboutView: View {
         #else
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("Well, what is FlatNote?")
+                Text(title)
                     .font(.title2.bold())
 
                 VStack(alignment: .leading, spacing: 30) {
