@@ -119,13 +119,16 @@ accordingly, or limit availability to exclude the EU.
 
 Required per platform. Framed 1.1 set is in `appstore/screenshots/`:
 
-- `iphone-6.9/` — 1320 x 2868. Upload in this order:
+- `iphone-6.9/` — 1320 x 2868. Upload into the **iPhone 6.9" Display** slot
+  (not 6.5"). Same six files, this order:
   1. `iphone-1-library.png` — "Markdown notes. No account."
   2. `iphone-2-photos.png`
   3. `iphone-3-checklists.png`
   4. `iphone-4-formatting.png`
   5. `iphone-5-markdown.png`
   6. `iphone-6-thesis.png` — "No account needed."
+- `iphone-6.5/` — 1284 x 2778. Same six filenames. Use only if App Store
+  Connect is on the **iPhone 6.5" Display** slot.
 - `ipad-13/` — 2064 x 2752: library, photos, checklists, markdown
 - `mac/` — 2880 x 1800: library, editor, outline
 
