@@ -47,6 +47,9 @@ struct FlatNoteApp: App {
     #if os(iOS)
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     #endif
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var macAppDelegate
+    #endif
 
     init() {
         #if os(macOS)
@@ -91,6 +94,11 @@ struct FlatNoteApp: App {
                 .background(LibraryWindowHost())
         }
         .defaultSize(width: 900, height: 640)
+        // Attached here rather than on DocumentGroup: SwiftUI silently
+        // ignores .appInfo replacements on the document scene.
+        .commands {
+            AboutCommands()
+        }
         #else
         WindowGroup {
             NoteLibraryView()
@@ -100,6 +108,94 @@ struct FlatNoteApp: App {
 }
 
 #if os(macOS)
+/// Retargets the stock App menu About item. SwiftUI `CommandGroup(replacing:
+/// .appInfo)` is silently dropped on the document scene (see
+/// `FlatNoteEditorCommands`); the system About panel would otherwise appear
+/// instead of `AboutView`.
+final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        rewireAboutMenu()
+        // SwiftUI finishes building the menu on the next turn.
+        DispatchQueue.main.async { [weak self] in
+            self?.rewireAboutMenu()
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        rewireAboutMenu()
+    }
+
+    private func rewireAboutMenu() {
+        guard let appMenu = NSApp.mainMenu?.items.first?.submenu,
+              let item = aboutMenuItem(in: appMenu) else { return }
+        item.target = self
+        item.action = #selector(showAbout(_:))
+    }
+
+    private func aboutMenuItem(in menu: NSMenu) -> NSMenuItem? {
+        let stock = #selector(NSApplication.orderFrontStandardAboutPanel(_:))
+        let ours = #selector(showAbout(_:))
+        if let item = menu.items.first(where: { $0.action == stock || $0.action == ours }) {
+            return item
+        }
+        return menu.items.first { $0.title.hasPrefix("About ") }
+    }
+
+    @objc func showAbout(_ sender: Any?) {
+        AboutWindow.show()
+    }
+}
+
+/// The "What is FlatNote?" card as a real About window: same `AboutView` as
+/// Settings → Philosophy and the iOS quick action, content-hugging, dismissed
+/// by the window chrome. Created from AppKit so it does not depend on
+/// SwiftUI `openWindow` or the DocumentGroup command table.
+enum AboutWindow {
+    static let title = "What is FlatNote?"
+
+    private static var window: NSWindow?
+
+    static func show() {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        let hosting = NSHostingController(rootView: AboutView())
+        hosting.sizingOptions = [.intrinsicContentSize]
+        let panel = NSWindow(contentViewController: hosting)
+        panel.title = title
+        panel.styleMask = [.titled, .closable]
+        panel.isReleasedWhenClosed = false
+        panel.isRestorable = false
+        size(panel, to: hosting)
+        panel.center()
+        window = panel
+        panel.makeKeyAndOrderFront(nil)
+        // SwiftUI's first fitting pass can land before the card has a height.
+        DispatchQueue.main.async { size(panel, to: hosting) }
+    }
+
+    private static func size(_ panel: NSWindow, to hosting: NSHostingController<AboutView>) {
+        hosting.view.layoutSubtreeIfNeeded()
+        let size = hosting.view.fittingSize
+        guard size.width > 1, size.height > 1 else { return }
+        panel.setContentSize(size)
+    }
+}
+
+/// Replaces the stock About panel with the same AboutView used everywhere
+/// else. Lives on the library `Window` scene because DocumentGroup drops
+/// `.appInfo` replacements.
+struct AboutCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About FlatNote") {
+                AboutWindow.show()
+            }
+        }
+    }
+}
+
 /// The tile library is a separate window. SwiftUI's `openWindow` will create
 /// or unhide it, but when a document note is already key it often stays
 /// behind that note. Tag the window and order it front ourselves.
@@ -152,12 +248,11 @@ struct FlatNoteEditorCommands: Commands {
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
-        // NOTE (2026-07-21): SwiftUI here honors File/Edit-area CommandGroups
-        // only. Replacing or inserting in the app menu (.appInfo) and Help is
-        // silently ignored, and a second Commands struct in the same
-        // @CommandsBuilder block is dropped. The What-is-FlatNote card is
-        // reachable on Mac via Settings > Philosophy instead. CommandMenu
-        // (a custom top-level menu) IS honored.
+        // NOTE (2026-07-21): this DocumentGroup scene honors File/Edit-area
+        // CommandGroups only. Replacing `.appInfo` or Help here is silently
+        // ignored, and a second Commands struct in the same @CommandsBuilder
+        // is dropped. About lives on the library Window (AboutCommands) and
+        // MacAppDelegate retargets the stock App menu item as a fallback.
         CommandGroup(replacing: .undoRedo) {
             Button("Undo") { editor?.undo() }
                 .keyboardShortcut("z", modifiers: .command)
