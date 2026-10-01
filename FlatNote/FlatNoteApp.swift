@@ -183,6 +183,39 @@ enum AboutWindow {
     }
 }
 
+/// Same Credits card as Settings → Philosophy, as a real window.
+enum CreditsWindow {
+    static let title = "Credits"
+
+    private static var window: NSWindow?
+
+    static func show() {
+        if let window {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        let hosting = NSHostingController(rootView: CreditsView())
+        hosting.sizingOptions = [.intrinsicContentSize]
+        let panel = NSWindow(contentViewController: hosting)
+        panel.title = title
+        panel.styleMask = [.titled, .closable]
+        panel.isReleasedWhenClosed = false
+        panel.isRestorable = false
+        size(panel, to: hosting)
+        panel.center()
+        window = panel
+        panel.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async { size(panel, to: hosting) }
+    }
+
+    private static func size(_ panel: NSWindow, to hosting: NSHostingController<CreditsView>) {
+        hosting.view.layoutSubtreeIfNeeded()
+        let size = hosting.view.fittingSize
+        guard size.width > 1, size.height > 1 else { return }
+        panel.setContentSize(size)
+    }
+}
+
 /// Replaces the stock About panel with the same AboutView used everywhere
 /// else. Lives on the library `Window` scene because DocumentGroup drops
 /// `.appInfo` replacements.
@@ -191,6 +224,11 @@ struct AboutCommands: Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About FlatNote") {
                 AboutWindow.show()
+            }
+        }
+        CommandGroup(after: .appInfo) {
+            Button("Credits") {
+                CreditsWindow.show()
             }
         }
     }

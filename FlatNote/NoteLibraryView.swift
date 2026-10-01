@@ -550,6 +550,21 @@ struct NoteLibraryView: View {
     }
 }
 
+// MARK: - Dedication
+
+/// Locked Flat family copy. Do not paraphrase — About and Credits
+/// must show these strings verbatim.
+enum FlatFamilyDedication {
+    static let about = "For my mama, Cathy. Inspired by my brother John — my hero."
+    static let credits = "FlatNote, FlatFile, and Flat Voice are for my mama, Cathy Benediktsson. Inspired by my brother John Benediktsson — my hero. Notes, files, and voice, kept simple."
+}
+
+private func flatNoteVersionLine() -> String {
+    let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+    let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+    return "FlatNote \(version) (Build \(build))"
+}
+
 // MARK: - About
 
 /// The "What is FlatNote?" card. Same copy everywhere it appears:
@@ -560,12 +575,6 @@ struct AboutView: View {
     @Environment(\.dismiss) private var dismiss
 
     private let title = "What is FlatNote?"
-
-    private var versionLine: String {
-        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "FlatNote \(version) (Build \(build))"
-    }
 
     @ViewBuilder
     private var copyBlock: some View {
@@ -578,8 +587,8 @@ struct AboutView: View {
     @ViewBuilder
     private var creditBlock: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(versionLine)
-            Text("Made for Mom by Kate Benediktsson")
+            Text(flatNoteVersionLine())
+            Text(FlatFamilyDedication.about)
         }
         .font(.callout)
         .foregroundStyle(.secondary)
@@ -650,6 +659,84 @@ struct AboutView: View {
     }
 }
 
+// MARK: - Credits
+
+/// The Credits card. Same copy in Settings and the Mac Credits window.
+struct CreditsView: View {
+    @Environment(\.dismiss) private var dismiss
+
+    private let title = "Credits"
+
+    @ViewBuilder
+    private var creditBlock: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(flatNoteVersionLine())
+        }
+        .font(.callout)
+        .foregroundStyle(.secondary)
+    }
+
+    var body: some View {
+        #if os(macOS)
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Spacer()
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 64, height: 64)
+                Spacer()
+            }
+            Text(title)
+                .font(.title2.bold())
+            Text(FlatFamilyDedication.credits)
+                .font(.body)
+            creditBlock
+        }
+        .padding(24)
+        .frame(width: 420)
+        .fixedSize(horizontal: false, vertical: true)
+        #else
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text(title)
+                    .font(.title2.bold())
+
+                Text(FlatFamilyDedication.credits)
+                    .font(.body)
+
+                creditBlock
+                    .padding(.top, 4)
+
+                Button {
+                    dismiss()
+                } label: {
+                    Text("Understood")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.primary)
+                .padding(.top, 6)
+            }
+            .padding(24)
+        }
+        .overlay(alignment: .topTrailing) {
+            Button {
+                dismiss()
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .font(.title3)
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+            .padding(14)
+            .accessibilityLabel("Close")
+        }
+        .presentationDetents([.large, .medium])
+        #endif
+    }
+}
+
 // MARK: - Settings
 
 struct SettingsView: View {
@@ -659,6 +746,7 @@ struct SettingsView: View {
     let onRestoreWelcome: () -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var showingAbout = false
+    @State private var showingCredits = false
 
     private var appVersion: String {
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -723,6 +811,11 @@ struct SettingsView: View {
                     } label: {
                         Label("What is FlatNote?", systemImage: "questionmark.circle")
                     }
+                    Button {
+                        showingCredits = true
+                    } label: {
+                        Label("Credits", systemImage: "heart")
+                    }
                     Link(destination: contactMailURL) {
                         Label("Contact Us", systemImage: "envelope")
                     }
@@ -747,6 +840,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showingAbout) {
                 AboutView()
+            }
+            .sheet(isPresented: $showingCredits) {
+                CreditsView()
             }
         }
         #if os(macOS)
