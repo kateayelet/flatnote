@@ -10,6 +10,18 @@ import Foundation
 import JavaScriptCore
 @testable import FlatNote
 
+// MARK: - Locked Flat family dedication
+
+struct DedicationTests {
+    @Test func aboutLineIsVerbatim() {
+        #expect(FlatFamilyDedication.about == "For my mama, Cathy. Inspired by my brother John — my hero.")
+    }
+
+    @Test func creditsBlurbIsVerbatim() {
+        #expect(FlatFamilyDedication.credits == "FlatNote, FlatFile, and Flat Voice are for my mama, Cathy Benediktsson. Inspired by my brother John Benediktsson — my hero. Notes, files, and voice, kept simple.")
+    }
+}
+
 // MARK: - NoteFile Tests
 
 struct NoteFileTests {
