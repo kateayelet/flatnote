@@ -662,4 +662,80 @@ struct MarkdownRenderTests {
             #expect(textContent(render(md)) == md, "textContent must equal source for: \(md)")
         }
     }
+
+    @Test func gfmPipeTableRendersHTMLTable() throws {
+        let render = try makeRenderer()
+        let md = """
+        |Existing pattern or capability|Proposed disposition|Acceptance condition|
+        |---|---|---|
+        |Source ingestion and artifact storage|Retain if compliant|Preserves originals.|
+        |Provenance ledger|Retain and strengthen|Tracks transformations.|
+        """
+        let html = render(md)
+        #expect(html.contains("<table class=\"md-table\">"))
+        #expect(html.contains("<thead>"))
+        #expect(html.contains("<th>"))
+        #expect(html.contains("<td>"))
+        #expect(html.contains("Existing pattern or capability"))
+        #expect(html.contains("Proposed disposition"))
+        #expect(html.contains("Acceptance condition"))
+        #expect(html.contains("Source ingestion and artifact storage"))
+        #expect(html.contains("line-table-head"))
+        #expect(html.contains("line-table-sep"))
+        #expect(html.contains("line-table-row"))
+        // Pipes stay in the DOM (hidden .mk) so the file-native source is intact.
+        #expect(html.contains("class=\"mk\">|</span>"))
+    }
+
+    @Test func gfmTableAlignmentClasses() throws {
+        let render = try makeRenderer()
+        let html = render("| left | center | right |\n|:-----|:------:|------:|\n| a | b | c |")
+        #expect(html.contains("align-left"))
+        #expect(html.contains("align-center"))
+        #expect(html.contains("align-right"))
+    }
+
+    @Test func pipeLineWithoutSeparatorStaysPlain() throws {
+        let render = try makeRenderer()
+        let html = render("| not a table | just pipes |")
+        #expect(!html.contains("<table"))
+        #expect(html.contains("class=\"line \""))
+        #expect(textContent(html) == "| not a table | just pipes |")
+    }
+
+    @Test func tableDoesNotSwallowCodeFence() throws {
+        let render = try makeRenderer()
+        let html = render("```\n| a | b |\n|---|---|\n| c | d |\n```")
+        #expect(!html.contains("<table"))
+        #expect(html.contains("line-code-fence"))
+        #expect(html.contains("line-code-block"))
+    }
+
+    @Test func tableRowTextContentEqualsSource() throws {
+        let render = try makeRenderer()
+        let lines = [
+            "| foo | bar |",
+            "| --- | --- |",
+            "| **bold** | *italic* |",
+        ]
+        let html = render(lines.joined(separator: "\n"))
+        // Flattened textContent drops newlines between row elements, so
+        // compare each data-line block on its own.
+        for (index, line) in lines.enumerated() {
+            #expect(lineTextContent(html, line: index) == line)
+        }
+    }
+
+    /// Pulls one data-line element's text, approximating DOM textContent.
+    private func lineTextContent(_ html: String, line: Int) -> String {
+        let marker = "data-line=\"\(line)\""
+        guard let start = html.range(of: marker) else { return "" }
+        let after = html[start.upperBound...]
+        guard let open = after.firstIndex(of: ">") else { return "" }
+        let innerStart = after.index(after: open)
+        let rest = html[innerStart...]
+        let endTag = rest.range(of: "</tr>") ?? rest.range(of: "</div>")
+        guard let end = endTag else { return textContent(String(rest)) }
+        return textContent(String(rest[..<end.lowerBound]))
+    }
 }
