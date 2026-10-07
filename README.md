@@ -54,7 +54,12 @@ xcodebuild test -project FlatNote.xcodeproj -scheme FlatNote \
 
 The suite covers the note store (file operations, titling, export, import
 dedup), the markdown stripper, and the editor renderer (exercised in
-JavaScriptCore against `render.js`).
+JavaScriptCore against `render.js`). GFM table HTML can also be smoked
+without Xcode:
+
+```bash
+node scripts/render-smoke.js
+```
 
 ## How it works
 

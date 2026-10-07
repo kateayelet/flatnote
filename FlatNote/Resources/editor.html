@@ -120,6 +120,46 @@ html, body {
 .line-code-fence { color: var(--faded); font-family: var(--font-mono); font-size: 0.85em; }
 .line-hr { border: none; border-top: 1px solid var(--hr-color); margin: 1em 0; min-height: 0; height: 0; }
 
+/* GFM pipe tables: real <table> so columns share a grid. Pipes stay in the
+   DOM (hidden .mk) until the row is active, matching other markers. */
+.md-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 0.75em 0;
+    font-size: 0.95em;
+    white-space: normal;
+}
+.md-table th, .md-table td {
+    border: 1px solid var(--hr-color);
+    padding: 6px 10px;
+    vertical-align: top;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+}
+.md-table th {
+    font-weight: 650;
+    background: var(--code-bg);
+    text-align: left;
+}
+.md-table .align-left { text-align: left; }
+.md-table .align-center { text-align: center; }
+.md-table .align-right { text-align: right; }
+.md-table .line-table-sep { height: 0; min-height: 0; }
+.md-table .line-table-sep td {
+    padding: 0;
+    border: none;
+    line-height: 0;
+    font-size: 0;
+    overflow: hidden;
+}
+.md-table .line-table-sep.active-line td {
+    padding: 6px 10px;
+    border: 1px solid var(--hr-color);
+    line-height: inherit;
+    font-size: inherit;
+}
+
 /* Inline styles */
 /* Syntax markers are present in the DOM (so cursor offsets stay exact) but
    hidden by default. They are revealed only on the line the cursor is in,
@@ -304,7 +344,7 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     // ========================================
     // CURSOR MAPPING
     // ========================================
-    // Key invariant: every line div's textContent === markdownSource line.
+    // Key invariant: every line element's textContent === markdownSource line.
     // This means DOM text offset === markdown source offset. Always.
 
     function getLineDiv(node) {
@@ -873,12 +913,12 @@ mark.search-hit.current { background: #FDD95E; color: #1a1a1a; }
     // ========================================
     // RENDERING
     // ========================================
-    // Key rule: every line div's textContent must === the markdown source line.
+    // Key rule: every line element's textContent must === the markdown source line.
     // Styling is done via spans that wrap parts of the text, but ALL text is present.
 
     // The pure line renderer lives in render.js (loaded before this script)
     // so it can be unit-tested in JavaScriptCore. It must produce, for every
-    // line, a div whose textContent === the source line.
+    // line, an element with data-line whose textContent === the source line.
     function render() {
         editor.innerHTML = renderMarkdown(markdownSource);
         if (searchQuery) highlightSearch();
